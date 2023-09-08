@@ -18,6 +18,7 @@
 #include "bolt/Core/ParallelUtilities.h"
 #include "bolt/Core/Relocation.h"
 #include "bolt/Passes/CacheMetrics.h"
+#include "bolt/Passes/NonPacProtectedRetAnalysis.h"
 #include "bolt/Passes/ReorderFunctions.h"
 #include "bolt/Profile/BoltAddressTranslation.h"
 #include "bolt/Profile/DataAggregator.h"
@@ -3292,7 +3293,11 @@ void RewriteInstance::runOptimizationPasses() {
 }
 
 void RewriteInstance::runGadgetScanners() {
-  
+  NamedRegionTimer T("runGadgetScanners", "run gadget scanner passes",
+                     TimerGroupName, TimerGroupDesc, opts::TimeRewrite);
+  BinaryFunctionPassManager Manager(*BC);
+  Manager.registerPass(std::make_unique<NonPacProtectedRetAnalysis>());
+  Manager.runPasses();
 }
 
 void RewriteInstance::preregisterSections() {
