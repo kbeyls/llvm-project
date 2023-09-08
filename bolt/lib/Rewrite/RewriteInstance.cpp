@@ -736,6 +736,11 @@ Error RewriteInstance::run() {
   if (opts::DiffOnly)
     return Error::success();
 
+  if (opts::GadgetScannerMode) {
+    runGadgetScanners();
+    return Error::success();
+  }
+
   preregisterSections();
 
   runOptimizationPasses();
@@ -3284,6 +3289,10 @@ void RewriteInstance::runOptimizationPasses() {
   NamedRegionTimer T("runOptimizationPasses", "run optimization passes",
                      TimerGroupName, TimerGroupDesc, opts::TimeRewrite);
   BinaryFunctionPassManager::runAllPasses(*BC);
+}
+
+void RewriteInstance::runGadgetScanners() {
+  
 }
 
 void RewriteInstance::preregisterSections() {

@@ -19,6 +19,7 @@ namespace opts {
 
 extern bool HeatmapMode;
 extern bool LinuxKernelMode;
+extern bool GadgetScannerMode;
 
 extern llvm::cl::OptionCategory BoltCategory;
 extern llvm::cl::OptionCategory BoltDiffCategory;

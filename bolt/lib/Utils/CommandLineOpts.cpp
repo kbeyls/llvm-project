@@ -30,6 +30,7 @@ namespace opts {
 
 bool HeatmapMode = false;
 bool LinuxKernelMode = false;
+bool GadgetScannerMode = false;
 
 cl::OptionCategory BoltCategory("BOLT generic options");
 cl::OptionCategory BoltDiffCategory("BOLTDIFF generic options");

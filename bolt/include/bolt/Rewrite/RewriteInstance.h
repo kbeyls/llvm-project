@@ -166,6 +166,8 @@ private:
 
   void preregisterSections();
 
+  void runGadgetScanners();
+
   /// Run optimizations that operate at the binary, or post-linker, level.
   void runOptimizationPasses();
 

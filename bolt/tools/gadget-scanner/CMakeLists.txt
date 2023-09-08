@@ -13,7 +13,7 @@ add_bolt_tool(llvm-bolt-gadget-scanner
 target_link_libraries(llvm-bolt-gadget-scanner
   PRIVATE
   #LLVMBOLTProfile
-  #LLVMBOLTRewrite
+  LLVMBOLTRewrite
   LLVMBOLTUtils
   )
 
