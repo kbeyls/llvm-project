@@ -1,5 +1,7 @@
 #include "bolt/Utils/CommandLineOpts.h"
 #include "llvm/MC/TargetRegistry.h"
+#include "llvm/Object/Binary.h"
+#include "llvm/Object/ELFObjectFile.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Errc.h"
 #include "llvm/Support/PrettyStackTrace.h"
@@ -10,7 +12,7 @@
 #define DEBUG_TYPE "bolt"
 
 using namespace llvm;
-//using namespace bolt;
+using namespace object;
 
 namespace opts {
 
@@ -32,19 +34,20 @@ static void report_error(StringRef Message, std::error_code EC) {
   exit(1);
 }
 
+static void report_error(StringRef Message, Error E) {
+  assert(E);
+  errs() << ToolName << ": '" << Message << "': " << toString(std::move(E))
+         << ".\n";
+  exit(1);
+}
+
 void ParseCommandLine(int argc, char **argv) {
   cl::HideUnrelatedOptions(ArrayRef(opts::GadgetScannerCategories));
   // Register the target printer for --version.
   //cl::AddExtraVersionPrinter(printBoltRevision);
   cl::AddExtraVersionPrinter(TargetRegistry::printRegisteredTargetsForVersion);
 
-  cl::ParseCommandLineOptions(argc, argv,
-                              "GadgetScanner\n");
-
-  //if (opts::OutputFilename.empty()) {
-  //  errs() << ToolName << ": expected -o=<output file> option.\n";
-  //  exit(1);
-  //}
+  cl::ParseCommandLineOptions(argc, argv, "GadgetScanner\n");
 }
 
 int main(int argc, char **argv) {
@@ -67,6 +70,18 @@ int main(int argc, char **argv) {
 
   if (!sys::fs::exists(opts::InputFilename))
     report_error(opts::InputFilename, errc::no_such_file_or_directory);
+
+  Expected<OwningBinary<Binary>> BinaryOrErr =
+      createBinary(opts::InputFilename);
+  if (Error E = BinaryOrErr.takeError())
+    report_error(opts::InputFilename, std::move(E));
+  Binary &Binary = *BinaryOrErr.get().getBinary();
+
+  if (auto *e = dyn_cast<ELFObjectFileBase>(&Binary)) {
+    //auto RIOrErr = RewriteInstance::create(e, argc, argv, ToolPath);
+    //if (Error E = RIOrErr.takeError())
+    //  report_error(opts::InputFilename, std::move(E));
+  }
 
   return EXIT_SUCCESS;
 }
