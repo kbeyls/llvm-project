@@ -1,0 +1,25 @@
+# This file tests error messages produced on invalid command line arguments.
+# It also test expected help messages produced.
+
+# Verify that an error message is provided if an input file is missing
+
+RUN: not llvm-bolt-gadget-scanner 2>&1 | FileCheck -check-prefix=NOFILEARG %s
+
+NOFILEARG:       llvm-bolt-gadget-scanner: Not enough positional command line arguments specified!
+NOFILEARG-NEXT:  Must specify at least 1 positional argument: See: {{.*}}llvm-bolt-gadget-scanner --help
+
+
+# Verify --help output
+
+RUN: llvm-bolt-gadget-scanner --help 2>&1 | FileCheck -check-prefix=HELP %s
+
+HELP:       OVERVIEW: GadgetScanner
+HELP-EMPTY:
+HELP-NEXT:  USAGE: llvm-bolt-gadget-scanner [options] <executable>
+HELP-EMPTY:
+HELP-NEXT:  OPTIONS:
+HELP-EMPTY:
+HELP-NEXT:  Generic Options:
+
+
+
