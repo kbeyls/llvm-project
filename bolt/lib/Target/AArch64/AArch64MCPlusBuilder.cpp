@@ -149,6 +149,33 @@ public:
     return false;
   }
 
+  bool isAuthenticationOfReg(const MCInst &Inst,
+                             const unsigned RegAuthenticated) const override {
+    switch (Inst.getOpcode()) {
+    case AArch64::AUTIAZ:
+    case AArch64::AUTIBZ:
+    case AArch64::AUTIASP:
+    case AArch64::AUTIBSP:
+      return RegAuthenticated == AArch64::LR;
+    case AArch64::AUTIA1716:
+    case AArch64::AUTIB1716:
+      return RegAuthenticated == AArch64::X17;
+
+    case AArch64::AUTIA:
+    case AArch64::AUTIB:
+    case AArch64::AUTDA:
+    case AArch64::AUTDB:
+    case AArch64::AUTIZA:
+    case AArch64::AUTIZB:
+    case AArch64::AUTDZA:
+    case AArch64::AUTDZB:
+      assert(Inst.getOperand(0).isReg());
+      return RegAuthenticated == Inst.getOperand(0).getReg();
+    default:
+      return false;
+    }
+  }
+
   bool isADRP(const MCInst &Inst) const override {
     return Inst.getOpcode() == AArch64::ADRP;
   }

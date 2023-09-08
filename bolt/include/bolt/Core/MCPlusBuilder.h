@@ -534,6 +534,12 @@ public:
     return Analysis->isReturn(Inst);
   }
 
+  virtual bool isAuthenticationOfReg(const MCInst &Inst,
+                                     const unsigned RegAuthenticated) const {
+    llvm_unreachable("not implemented");
+    return false;
+  }
+
   virtual bool isTerminator(const MCInst &Inst) const {
     return Analysis->isTerminator(Inst);
   }
