@@ -1,4 +1,4 @@
-// RUN: %clang %cflags -mbranch-protection=pac-ret %s %p/../Inputs/asm_main.c -o %t.exe
+// RUN: %clang %cflags -march=armv8.3-a -mbranch-protection=pac-ret %s %p/../Inputs/asm_main.c -o %t.exe
 // RUN: llvm-bolt-gadget-scanner %t.exe 2>&1 | FileCheck -check-prefix=CHECK --allow-empty %s
 
         .text
@@ -10,22 +10,321 @@ f1:
         mov     x29, sp
         bl      g
         add     x0, x0, #3
-        ldp     x29, x30, [sp], #16             // 16-byte Folded Reload
+        ldp     x29, x30, [sp], #16
         // paciasp
-// CHECK: GS-PACRET: non-protected ret found in function f1, basic block .LBB00
+// CHECK: GS-PACRET: non-protected ret found in function f1, basic block .LBB
         ret
         .size f1, .-f1
 
-        .globl  f_paciasp
-        .type   f_paciasp,@function
-f_paciasp:
+/// Now do a basic sanity check on every different Authentication instruction:
+
+        .globl  f_autiasp
+        .type   f_autiasp,@function
+f_autiasp:
         hint    #25
         stp     x29, x30, [sp, #-16]!
         mov     x29, sp
         bl      g
         add     x0, x0, #3
-        ldp     x29, x30, [sp], #16             // 16-byte Folded Reload
+        ldp     x29, x30, [sp], #16
         autiasp
-// CHECK-NOT: function f_paciasp
+// CHECK-NOT: function f_autiasp
         ret
-        .size f_paciasp, .-f_paciasp
+        .size f_autiasp, .-f_autiasp
+
+        .globl  f_autibsp
+        .type   f_autibsp,@function
+f_autibsp:
+        hint    #25
+        stp     x29, x30, [sp, #-16]!
+        mov     x29, sp
+        bl      g
+        add     x0, x0, #3
+        ldp     x29, x30, [sp], #16
+        autibsp
+// CHECK-NOT: function f_autibsp
+        ret
+        .size f_autibsp, .-f_autibsp
+
+        .globl  f_autiaz
+        .type   f_autiaz,@function
+f_autiaz:
+        hint    #25
+        stp     x29, x30, [sp, #-16]!
+        mov     x29, sp
+        bl      g
+        add     x0, x0, #3
+        ldp     x29, x30, [sp], #16
+        autiaz
+// CHECK-NOT: function f_autiaz
+        ret
+        .size f_autiaz, .-f_autiaz
+
+        .globl  f_autibz
+        .type   f_autibz,@function
+f_autibz:
+        hint    #25
+        stp     x29, x30, [sp, #-16]!
+        mov     x29, sp
+        bl      g
+        add     x0, x0, #3
+        ldp     x29, x30, [sp], #16
+        autiaz
+// CHECK-NOT: function f_autibz
+        ret
+        .size f_autibz, .-f_autibz
+
+        .globl  f_autia1716
+        .type   f_autia1716,@function
+f_autia1716:
+        hint    #25
+        stp     x29, x30, [sp, #-16]!
+        mov     x29, sp
+        bl      g
+        add     x0, x0, #3
+        ldp     x29, x30, [sp], #16
+        autia1716
+// CHECK: GS-PACRET: non-protected ret found in function f_autia1716, basic block .LBB
+        ret
+        .size f_autia1716, .-f_autia1716
+
+        .globl  f_autib1716
+        .type   f_autib1716,@function
+f_autib1716:
+        hint    #25
+        stp     x29, x30, [sp, #-16]!
+        mov     x29, sp
+        bl      g
+        add     x0, x0, #3
+        ldp     x29, x30, [sp], #16
+        autib1716
+// CHECK: GS-PACRET: non-protected ret found in function f_autib1716, basic block .LBB
+        ret
+        .size f_autib1716, .-f_autib1716
+
+        .globl  f_autiax12
+        .type   f_autiax12,@function
+f_autiax12:
+        hint    #25
+        stp     x29, x30, [sp, #-16]!
+        mov     x29, sp
+        bl      g
+        add     x0, x0, #3
+        ldp     x29, x30, [sp], #16
+        autia   x12, sp
+// CHECK: GS-PACRET: non-protected ret found in function f_autiax12, basic block .LBB
+        ret
+        .size f_autiax12, .-f_autiax12
+
+        .globl  f_autibx12
+        .type   f_autibx12,@function
+f_autibx12:
+        hint    #25
+        stp     x29, x30, [sp, #-16]!
+        mov     x29, sp
+        bl      g
+        add     x0, x0, #3
+        ldp     x29, x30, [sp], #16
+        autib   x12, sp
+// CHECK: GS-PACRET: non-protected ret found in function f_autibx12, basic block .LBB
+        ret
+        .size f_autibx12, .-f_autibx12
+
+        .globl  f_autiax30
+        .type   f_autiax30,@function
+f_autiax30:
+        hint    #25
+        stp     x29, x30, [sp, #-16]!
+        mov     x29, sp
+        bl      g
+        add     x0, x0, #3
+        ldp     x29, x30, [sp], #16
+        autia   x30, sp
+// CHECK-NOT: function f_autiax30
+        ret
+        .size f_autiax30, .-f_autiax30
+
+        .globl  f_autibx30
+        .type   f_autibx30,@function
+f_autibx30:
+        hint    #25
+        stp     x29, x30, [sp, #-16]!
+        mov     x29, sp
+        bl      g
+        add     x0, x0, #3
+        ldp     x29, x30, [sp], #16
+        autib   x30, sp
+// CHECK-NOT: function f_autibx30
+        ret
+        .size f_autibx30, .-f_autibx30
+
+
+        .globl  f_autdax12
+        .type   f_autdax12,@function
+f_autdax12:
+        hint    #25
+        stp     x29, x30, [sp, #-16]!
+        mov     x29, sp
+        bl      g
+        add     x0, x0, #3
+        ldp     x29, x30, [sp], #16
+        autda   x12, sp
+// CHECK: GS-PACRET: non-protected ret found in function f_autdax12, basic block .LBB
+        ret
+        .size f_autdax12, .-f_autdax12
+
+        .globl  f_autdbx12
+        .type   f_autdbx12,@function
+f_autdbx12:
+        hint    #25
+        stp     x29, x30, [sp, #-16]!
+        mov     x29, sp
+        bl      g
+        add     x0, x0, #3
+        ldp     x29, x30, [sp], #16
+        autdb   x12, sp
+// CHECK: GS-PACRET: non-protected ret found in function f_autdbx12, basic block .LBB
+        ret
+        .size f_autdbx12, .-f_autdbx12
+
+        .globl  f_autdax30
+        .type   f_autdax30,@function
+f_autdax30:
+        hint    #25
+        stp     x29, x30, [sp, #-16]!
+        mov     x29, sp
+        bl      g
+        add     x0, x0, #3
+        ldp     x29, x30, [sp], #16
+        autda   x30, sp
+// CHECK-NOT: function f_autdax30
+        ret
+        .size f_autdax30, .-f_autdax30
+
+        .globl  f_autdbx30
+        .type   f_autdbx30,@function
+f_autdbx30:
+        hint    #25
+        stp     x29, x30, [sp, #-16]!
+        mov     x29, sp
+        bl      g
+        add     x0, x0, #3
+        ldp     x29, x30, [sp], #16
+        autdb   x30, sp
+// CHECK-NOT: function f_autdbx30
+        ret
+        .size f_autdbx30, .-f_autdbx30
+
+
+        .globl  f_autizax12
+        .type   f_autizax12,@function
+f_autizax12:
+        hint    #25
+        stp     x29, x30, [sp, #-16]!
+        mov     x29, sp
+        bl      g
+        add     x0, x0, #3
+        ldp     x29, x30, [sp], #16
+        autiza  x12
+// CHECK: GS-PACRET: non-protected ret found in function f_autizax12, basic block .LBB
+        ret
+        .size f_autizax12, .-f_autizax12
+
+        .globl  f_autizbx12
+        .type   f_autizbx12,@function
+f_autizbx12:
+        hint    #25
+        stp     x29, x30, [sp, #-16]!
+        mov     x29, sp
+        bl      g
+        add     x0, x0, #3
+        ldp     x29, x30, [sp], #16
+        autizb  x12
+// CHECK: GS-PACRET: non-protected ret found in function f_autizbx12, basic block .LBB
+        ret
+        .size f_autizbx12, .-f_autizbx12
+
+        .globl  f_autizax30
+        .type   f_autizax30,@function
+f_autizax30:
+        hint    #25
+        stp     x29, x30, [sp, #-16]!
+        mov     x29, sp
+        bl      g
+        add     x0, x0, #3
+        ldp     x29, x30, [sp], #16
+        autiza  x30
+// CHECK-NOT: function f_autizax30
+        ret
+        .size f_autizax30, .-f_autizax30
+
+        .globl  f_autizbx30
+        .type   f_autizbx30,@function
+f_autizbx30:
+        hint    #25
+        stp     x29, x30, [sp, #-16]!
+        mov     x29, sp
+        bl      g
+        add     x0, x0, #3
+        ldp     x29, x30, [sp], #16
+        autizb  x30
+// CHECK-NOT: function f_autizbx30
+        ret
+        .size f_autizbx30, .-f_autizbx30
+
+
+        .globl  f_autdzax12
+        .type   f_autdzax12,@function
+f_autdzax12:
+        hint    #25
+        stp     x29, x30, [sp, #-16]!
+        mov     x29, sp
+        bl      g
+        add     x0, x0, #3
+        ldp     x29, x30, [sp], #16
+        autdza  x12
+// CHECK: GS-PACRET: non-protected ret found in function f_autdzax12, basic block .LBB
+        ret
+        .size f_autdzax12, .-f_autdzax12
+
+        .globl  f_autdzbx12
+        .type   f_autdzbx12,@function
+f_autdzbx12:
+        hint    #25
+        stp     x29, x30, [sp, #-16]!
+        mov     x29, sp
+        bl      g
+        add     x0, x0, #3
+        ldp     x29, x30, [sp], #16
+        autdzb  x12
+// CHECK: GS-PACRET: non-protected ret found in function f_autdzbx12, basic block .LBB
+        ret
+        .size f_autdzbx12, .-f_autdzbx12
+
+        .globl  f_autdzax30
+        .type   f_autdzax30,@function
+f_autdzax30:
+        hint    #25
+        stp     x29, x30, [sp, #-16]!
+        mov     x29, sp
+        bl      g
+        add     x0, x0, #3
+        ldp     x29, x30, [sp], #16
+        autdza  x30
+// CHECK-NOT: function f_autdzax30
+        ret
+        .size f_autdzax30, .-f_autdzax30
+
+        .globl  f_autdzbx30
+        .type   f_autdzbx30,@function
+f_autdzbx30:
+        hint    #25
+        stp     x29, x30, [sp, #-16]!
+        mov     x29, sp
+        bl      g
+        add     x0, x0, #3
+        ldp     x29, x30, [sp], #16
+        autdzb  x30
+// CHECK-NOT: function f_autdzbx30
+        ret
+        .size f_autdzbx30, .-f_autdzbx30
