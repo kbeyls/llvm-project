@@ -33,6 +33,7 @@ void NonPacProtectedRetAnalysis::runOnBB(BinaryFunction &BF,
   const BinaryContext &BC = BF.getBinaryContext();
   bool RetFound = false;
   bool AuthFound = false;
+  bool RetRegClobbered = false;
   unsigned RetReg = BC.MIB->getNoRegister();
   MCInst &RetInst = BB.back();
   LLVM_DEBUG({
@@ -64,10 +65,6 @@ void NonPacProtectedRetAnalysis::runOnBB(BinaryFunction &BF,
       }
     }
 
-    // FIXME: also check that there is no other instr in between defining
-    // RetReg. Reads of RetReg are presumably fine (but may result in
-    // authentication oracles?)
-
     if (!RetFound)
       continue;
 
@@ -80,6 +77,13 @@ void NonPacProtectedRetAnalysis::runOnBB(BinaryFunction &BF,
         dbgs() << "\n ";
       });
       AuthFound = true;
+      break;
+    }
+
+    BitVector ClobberedRegs;
+    if (BC.MIB->hasDefOfPhysReg(Inst, RetReg)) {
+      RetRegClobbered = true;
+      break;
     }
   }
   if (RetFound && !AuthFound) {

@@ -2,6 +2,7 @@
 // RUN: llvm-bolt-gadget-scanner %t.exe 2>&1 | FileCheck -check-prefix=CHECK --allow-empty %s
 
         .text
+
         .globl  f1
         .type   f1,@function
 f1:
@@ -15,6 +16,81 @@ f1:
 // CHECK: GS-PACRET: non-protected ret found in function f1, basic block .LBB
         ret
         .size f1, .-f1
+
+
+        .globl  f_intermediate_overwrite1
+        .type   f_intermediate_overwrite1,@function
+f_intermediate_overwrite1:
+        hint    #25
+        stp     x29, x30, [sp, #-16]!
+        mov     x29, sp
+        bl      g
+        add     x0, x0, #3
+        autiasp
+        ldp     x29, x30, [sp], #16
+// CHECK: GS-PACRET: non-protected ret found in function f_intermediate_overwrite1, basic block .LBB
+        ret
+        .size f_intermediate_overwrite1, .-f_intermediate_overwrite1
+
+        .globl  f_intermediate_overwrite2
+        .type   f_intermediate_overwrite2,@function
+f_intermediate_overwrite2:
+        hint    #25
+        stp     x29, x30, [sp, #-16]!
+        mov     x29, sp
+        bl      g
+        add     x0, x0, #3
+        ldp     x29, x30, [sp], #16
+        autiasp
+        mov     x30, x0
+// CHECK: GS-PACRET: non-protected ret found in function f_intermediate_overwrite2, basic block .LBB
+        ret
+        .size f_intermediate_overwrite2, .-f_intermediate_overwrite2
+
+        .globl  f_intermediate_read
+        .type   f_intermediate_read,@function
+f_intermediate_read:
+        hint    #25
+        stp     x29, x30, [sp, #-16]!
+        mov     x29, sp
+        bl      g
+        add     x0, x0, #3
+        ldp     x29, x30, [sp], #16
+        autiasp
+        mov     x0, x30
+// CHECK-NOT: function f_intermediate_read
+        ret
+        .size f_intermediate_read, .-f_intermediate_read
+
+        .globl  f_intermediate_overwrite3
+        .type   f_intermediate_overwrite3,@function
+f_intermediate_overwrite3:
+        hint    #25
+        stp     x29, x30, [sp, #-16]!
+        mov     x29, sp
+        bl      g
+        add     x0, x0, #3
+        ldp     x29, x30, [sp], #16
+        autiasp
+        mov     w30, w0
+// CHECK: GS-PACRET: non-protected ret found in function f_intermediate_overwrite3, basic block .LBB
+        ret
+        .size f_intermediate_overwrite3, .-f_intermediate_overwrite3
+
+        .globl  f_nonx30_ret
+        .type   f_nonx30_ret,@function
+f_nonx30_ret:
+        hint    #25
+        stp     x29, x30, [sp, #-16]!
+        mov     x29, sp
+        bl      g
+        add     x0, x0, #3
+        ldp     x29, x30, [sp], #16
+        autiasp
+// CHECK: GS-PACRET: non-protected ret found in function f_nonx30_ret, basic block .LBB
+        ret     x16
+        .size f_nonx30_ret, .-f_nonx30_ret
+
 
 /// Now do a basic sanity check on every different Authentication instruction:
 
