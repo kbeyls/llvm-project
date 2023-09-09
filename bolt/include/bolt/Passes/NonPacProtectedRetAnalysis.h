@@ -19,12 +19,30 @@
 namespace llvm {
 namespace bolt {
 
+struct NonPacProtectedRetGadget {
+  /// address of ret instruction? -> not needed.
+  /// register of ret instruction?
+  bool b = true;
+  bool operator<(const NonPacProtectedRetGadget &RHS) const {
+    return b < RHS.b;
+  }
+  bool operator==(const NonPacProtectedRetGadget &RHS) const {
+    return b == RHS.b;
+  }
+};
+
+raw_ostream &operator<<(raw_ostream &OS, const NonPacProtectedRetGadget &FIE) {
+  OS << "pac-ret-gadget<>";
+  return OS;
+}
+
 class NonPacProtectedRetAnalysis : public BinaryFunctionPass {
+  void runOnBB(BinaryFunction &Function, BinaryBasicBlock &BB);
   void runOnFunction(BinaryFunction &Function);
+  unsigned gadgetAnnotationIndex;
 
 public:
-  explicit NonPacProtectedRetAnalysis()
-      : BinaryFunctionPass(false) {}
+  explicit NonPacProtectedRetAnalysis() : BinaryFunctionPass(false) {}
 
   const char *getName() const override { return "non-pac-protected-rets"; }
 
