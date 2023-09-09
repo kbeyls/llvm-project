@@ -22,13 +22,14 @@ namespace bolt {
 struct NonPacProtectedRetGadget {
   /// address of ret instruction? -> not needed.
   /// register of ret instruction?
-  bool b = true;
+  uint64_t Address;
   bool operator<(const NonPacProtectedRetGadget &RHS) const {
-    return b < RHS.b;
+    return Address < RHS.Address;
   }
   bool operator==(const NonPacProtectedRetGadget &RHS) const {
-    return b == RHS.b;
+    return Address == RHS.Address;
   }
+  NonPacProtectedRetGadget(uint64_t A) : Address(A) {}
 };
 
 raw_ostream &operator<<(raw_ostream &OS, const NonPacProtectedRetGadget &NPPRG);

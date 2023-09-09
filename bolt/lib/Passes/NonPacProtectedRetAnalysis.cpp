@@ -14,8 +14,7 @@
 #include "bolt/Passes/NonPacProtectedRetAnalysis.h"
 #include "bolt/Core/ParallelUtilities.h"
 #include "llvm/MC/MCInst.h"
-
-#include <cstdio>
+#include "llvm/Support/Format.h"
 
 #define DEBUG_TYPE "bolt-nonpacprotectedret"
 
@@ -24,7 +23,7 @@ namespace bolt {
 
 raw_ostream &operator<<(raw_ostream &OS,
                         const NonPacProtectedRetGadget &NPPRG) {
-  OS << "pac-ret-gadget<>";
+  OS << "pac-ret-gadget<" << NPPRG.Address << ">";
   return OS;
 }
 
@@ -33,9 +32,9 @@ void NonPacProtectedRetAnalysis::runOnBB(BinaryFunction &BF,
   const BinaryContext &BC = BF.getBinaryContext();
   bool RetFound = false;
   bool AuthFound = false;
-  bool RetRegClobbered = false;
   unsigned RetReg = BC.MIB->getNoRegister();
   MCInst &RetInst = BB.back();
+  int64_t RetInstOffset = -1;
   LLVM_DEBUG({
     dbgs() << "Analyzing in function " << BF.getPrintName() << ", basic block "
            << BB.getName() << "\n";
@@ -46,6 +45,7 @@ void NonPacProtectedRetAnalysis::runOnBB(BinaryFunction &BF,
     if (BC.MIB->isReturn(Inst)) {
       assert(!RetFound);
       RetFound = true;
+      RetInstOffset = I;
       // There should be one register that the return reads, and
       // that's the one being used as the jump target?
       // But what about RETAA etc?
@@ -80,16 +80,17 @@ void NonPacProtectedRetAnalysis::runOnBB(BinaryFunction &BF,
       break;
     }
 
-    BitVector ClobberedRegs;
     if (BC.MIB->hasDefOfPhysReg(Inst, RetReg)) {
-      RetRegClobbered = true;
       break;
     }
   }
   if (RetFound && !AuthFound) {
     // Non-protected ret found
+    uint64_t Address =
+        BB.getInputAddressRange().first + BF.getAddress() + RetInstOffset * 4;
+
     BC.MIB->addAnnotation(RetInst, gadgetAnnotationIndex,
-                          NonPacProtectedRetGadget());
+                          NonPacProtectedRetGadget(Address));
   }
   // TODO: maybe also scan for authentication oracles? i.e. authentications
   // not followed by a memory access using the authenticated register?
@@ -125,7 +126,12 @@ void NonPacProtectedRetAnalysis::runOnFunctions(BinaryContext &BC) {
         if (BC.MIB->hasAnnotation(Inst, gadgetAnnotationIndex)) {
           outs() << "GS-PACRET: "
                  << "non-protected ret found in function " << BF->getPrintName()
-                 << ", basic block " << BB.getName()
+                 << ", basic block " << BB.getName() << ", at address "
+                 << llvm::format(
+                        "%x", BC.MIB
+                                  ->getAnnotationAs<NonPacProtectedRetGadget>(
+                                      Inst, gadgetAnnotationIndex)
+                                  .Address)
                  << "\n"; // FIXME: add "at address ..."
           BB.dump();
         }
