@@ -49,6 +49,11 @@ void NonPacProtectedRetAnalysis::runOnBB(BinaryFunction &BF,
         if (!MO.isReg())
           continue;
         RetReg = MO.getReg();
+        LLVM_DEBUG({
+          dbgs() << ".. return instruction found using register ";
+          BC.InstPrinter->printRegName(dbgs(), MCRegister(RetReg));
+          dbgs() << " (" << MO << ")\n";
+        });
         break;
       }
     }
@@ -61,6 +66,13 @@ void NonPacProtectedRetAnalysis::runOnBB(BinaryFunction &BF,
       continue;
 
     if (BC.MIB->isAuthenticationOfReg(Inst, RetReg)) {
+      LLVM_DEBUG({
+        dbgs() << ".. auth instruction found using register ";
+        BC.InstPrinter->printRegName(dbgs(), MCRegister(RetReg));
+        dbgs() << " : ";
+        BC.InstPrinter->printInst(&Inst, 0, "", *BC.STI, dbgs());
+        dbgs() << "\n ";
+      });
       AuthFound = true;
     }
   }
