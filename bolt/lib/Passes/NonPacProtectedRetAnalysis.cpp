@@ -52,6 +52,9 @@ void NonPacProtectedRetAnalysis::runOnFunction(BinaryFunction &BF) {
         }
       }
 
+      // FIXME: also check that there is no other instr in between defining RetReg.
+      // Reads of RetReg are presumably fine (but may result in authentication oracles?)
+
       if (!RetFound)
         continue;
 
@@ -61,11 +64,13 @@ void NonPacProtectedRetAnalysis::runOnFunction(BinaryFunction &BF) {
     }
     if (RetFound && !AuthFound) {
       // Non-protected ret found
-      LLVM_DEBUG({
-        dbgs() << "Found unprotected ret instruction in function "
-               << BF.getPrintName() << ", basic block " << BB.getName() << "\n";
-        BB.dump();
-      });
+      // FIXME: need to design something so that output gets buffered as this
+      // part can be executed in parallel.
+      outs() << "GS-PACRET: "
+             << "non-protected ret found in function " << BF.getPrintName()
+             << ", basic block " << BB.getName()
+             << "\n"; // FIXME: add "at address ..."
+      BB.dump();
     }
   }
   // TODO: maybe also scan for authentication oracles? i.e. authentications
