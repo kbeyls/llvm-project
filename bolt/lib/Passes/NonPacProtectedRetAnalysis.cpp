@@ -22,6 +22,12 @@
 namespace llvm {
 namespace bolt {
 
+raw_ostream &operator<<(raw_ostream &OS,
+                        const NonPacProtectedRetGadget &NPPRG) {
+  OS << "pac-ret-gadget<>";
+  return OS;
+}
+
 void NonPacProtectedRetAnalysis::runOnBB(BinaryFunction &BF,
                                          BinaryBasicBlock &BB) {
   const BinaryContext &BC = BF.getBinaryContext();

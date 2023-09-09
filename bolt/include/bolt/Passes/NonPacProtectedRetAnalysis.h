@@ -31,10 +31,7 @@ struct NonPacProtectedRetGadget {
   }
 };
 
-raw_ostream &operator<<(raw_ostream &OS, const NonPacProtectedRetGadget &FIE) {
-  OS << "pac-ret-gadget<>";
-  return OS;
-}
+raw_ostream &operator<<(raw_ostream &OS, const NonPacProtectedRetGadget &NPPRG);
 
 class NonPacProtectedRetAnalysis : public BinaryFunctionPass {
   void runOnBB(BinaryFunction &Function, BinaryBasicBlock &BB);
