@@ -38,6 +38,7 @@ list(APPEND BOLT_TEST_DEPS
   llvm-config
   llvm-bolt
   llvm-bolt-heatmap
+  llvm-bolt-gadget-scanner
   llvm-bat-dump
   llvm-dwarfdump
   llvm-dwp
