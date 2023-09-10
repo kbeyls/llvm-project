@@ -162,6 +162,9 @@ public:
     case AArch64::AUTIA1716:
     case AArch64::AUTIB1716:
       return RegAuthenticated == AArch64::X17;
+    case AArch64::ERETAA:
+    case AArch64::ERETAB:
+      return RegAuthenticated == AArch64::LR;
 
     case AArch64::AUTIA:
     case AArch64::AUTIB:
@@ -194,6 +197,9 @@ public:
       return getNoRegister();
     case AArch64::RETAA:
     case AArch64::RETAB:
+    case AArch64::ERETAA:
+    case AArch64::ERETAB:
+    case AArch64::ERET:
       return AArch64::LR;
     default:
       llvm_unreachable("Unhandled return instruction");

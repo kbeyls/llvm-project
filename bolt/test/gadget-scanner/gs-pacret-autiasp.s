@@ -430,3 +430,42 @@ f_retab:
 // CHECK-NOT: function f_retab
         retab
         .size f_retab, .-f_retab
+
+        .globl  f_eretaa
+        .type   f_eretaa,@function
+f_eretaa:
+        hint    #25
+        stp     x29, x30, [sp, #-16]!
+        mov     x29, sp
+        bl      g
+        add     x0, x0, #3
+        ldp     x29, x30, [sp], #16
+// CHECK-NOT: function f_eretaa
+        eretaa
+        .size f_eretaa, .-f_eretaa
+
+        .globl  f_eretab
+        .type   f_eretab,@function
+f_eretab:
+        hint    #25
+        stp     x29, x30, [sp, #-16]!
+        mov     x29, sp
+        bl      g
+        add     x0, x0, #3
+        ldp     x29, x30, [sp], #16
+// CHECK-NOT: function f_eretab
+        eretab
+        .size f_eretab, .-f_eretab
+
+        .globl  f_eret
+        .type   f_eret,@function
+f_eret:
+        hint    #25
+        stp     x29, x30, [sp, #-16]!
+        mov     x29, sp
+        bl      g
+        add     x0, x0, #3
+        ldp     x29, x30, [sp], #16
+// CHECK: GS-PACRET: non-protected ret found in function f_eret, basic block .LBB{{[0-9]+}}, at address
+        eret
+        .size f_eret, .-f_eret
