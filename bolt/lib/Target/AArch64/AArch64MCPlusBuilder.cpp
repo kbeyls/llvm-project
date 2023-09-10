@@ -156,6 +156,8 @@ public:
     case AArch64::AUTIBZ:
     case AArch64::AUTIASP:
     case AArch64::AUTIBSP:
+    case AArch64::RETAA:
+    case AArch64::RETAB:
       return RegAuthenticated == AArch64::LR;
     case AArch64::AUTIA1716:
     case AArch64::AUTIB1716:
@@ -171,8 +173,30 @@ public:
     case AArch64::AUTDZB:
       assert(Inst.getOperand(0).isReg());
       return RegAuthenticated == Inst.getOperand(0).getReg();
+
     default:
       return false;
+    }
+  }
+
+  llvm::MCPhysReg getRegUsedAsRetDest(const MCInst &Inst) const override {
+    assert(isReturn(Inst));
+    switch (Inst.getOpcode()) {
+    case AArch64::RET:
+      // There should be one register that the return reads, and
+      // that's the one being used as the jump target?
+      for (unsigned OpIdx = 0, EndIdx = Inst.getNumOperands(); OpIdx < EndIdx;
+           ++OpIdx) {
+        const MCOperand &MO = Inst.getOperand(OpIdx);
+        if (MO.isReg())
+          return MO.getReg();
+      }
+      return getNoRegister();
+    case AArch64::RETAA:
+    case AArch64::RETAB:
+      return AArch64::LR;
+    default:
+      llvm_unreachable("Unhandled return instruction");
     }
   }
 

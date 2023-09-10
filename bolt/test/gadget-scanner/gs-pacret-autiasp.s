@@ -404,3 +404,29 @@ f_autdzbx30:
 // CHECK-NOT: function f_autdzbx30
         ret
         .size f_autdzbx30, .-f_autdzbx30
+
+        .globl  f_retaa
+        .type   f_retaa,@function
+f_retaa:
+        hint    #25
+        stp     x29, x30, [sp, #-16]!
+        mov     x29, sp
+        bl      g
+        add     x0, x0, #3
+        ldp     x29, x30, [sp], #16
+// CHECK-NOT: function f_retaa
+        retaa
+        .size f_retaa, .-f_retaa
+
+        .globl  f_retab
+        .type   f_retab,@function
+f_retab:
+        hint    #25
+        stp     x29, x30, [sp, #-16]!
+        mov     x29, sp
+        bl      g
+        add     x0, x0, #3
+        ldp     x29, x30, [sp], #16
+// CHECK-NOT: function f_retab
+        retab
+        .size f_retab, .-f_retab

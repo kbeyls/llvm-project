@@ -540,6 +540,11 @@ public:
     return false;
   }
 
+  virtual llvm::MCPhysReg getRegUsedAsRetDest(const MCInst &Inst) const {
+    llvm_unreachable("not implemented");
+    return getNoRegister();
+  }
+
   virtual bool isTerminator(const MCInst &Inst) const {
     return Analysis->isTerminator(Inst);
   }

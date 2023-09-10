@@ -46,23 +46,12 @@ void NonPacProtectedRetAnalysis::runOnBB(BinaryFunction &BF,
       assert(!RetFound);
       RetFound = true;
       RetInstOffset = I;
-      // There should be one register that the return reads, and
-      // that's the one being used as the jump target?
-      // But what about RETAA etc?
-      // FIXME: write test case for RETAA.
-      for (unsigned OpIdx = 0, EndIdx = Inst.getNumOperands(); OpIdx < EndIdx;
-           ++OpIdx) {
-        MCOperand &MO = Inst.getOperand(OpIdx);
-        if (!MO.isReg())
-          continue;
-        RetReg = MO.getReg();
-        LLVM_DEBUG({
-          dbgs() << ".. return instruction found using register ";
-          BC.InstPrinter->printRegName(dbgs(), MCRegister(RetReg));
-          dbgs() << " (" << MO << ")\n";
-        });
-        break;
-      }
+      RetReg = BC.MIB->getRegUsedAsRetDest(Inst);
+      LLVM_DEBUG({
+        dbgs() << ".. return instruction found using register ";
+        BC.InstPrinter->printRegName(dbgs(), MCRegister(RetReg));
+        dbgs() << "\n";
+      });
     }
 
     if (!RetFound)
