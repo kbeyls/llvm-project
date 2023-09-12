@@ -2494,13 +2494,13 @@ private:
     }
     case MCCFIInstruction::OpAdjustCfaOffset:
     case MCCFIInstruction::OpWindowSave:
-    case MCCFIInstruction::OpNegateRAState:
     case MCCFIInstruction::OpLLVMDefAspaceCfa:
       llvm_unreachable("unsupported CFI opcode");
       break;
     case MCCFIInstruction::OpRememberState:
     case MCCFIInstruction::OpRestoreState:
     case MCCFIInstruction::OpGnuArgsSize:
+    case MCCFIInstruction::OpNegateRAState: // FIXME properly handle OpNegateRAState
       // do not affect CFI state
       break;
     }
@@ -2631,13 +2631,13 @@ struct CFISnapshotDiff : public CFISnapshot {
       return CFAReg == Instr.getRegister() && CFAOffset == Instr.getOffset();
     case MCCFIInstruction::OpAdjustCfaOffset:
     case MCCFIInstruction::OpWindowSave:
-    case MCCFIInstruction::OpNegateRAState:
     case MCCFIInstruction::OpLLVMDefAspaceCfa:
       llvm_unreachable("unsupported CFI opcode");
       return false;
     case MCCFIInstruction::OpRememberState:
     case MCCFIInstruction::OpRestoreState:
     case MCCFIInstruction::OpGnuArgsSize:
+    case MCCFIInstruction::OpNegateRAState:  // FIXME properly handle OpNegateRAState
       // do not affect CFI state
       return true;
     }
@@ -2779,10 +2779,11 @@ BinaryFunction::unwindCFIState(int32_t FromState, int32_t ToState,
       break;
     case MCCFIInstruction::OpAdjustCfaOffset:
     case MCCFIInstruction::OpWindowSave:
-    case MCCFIInstruction::OpNegateRAState:
     case MCCFIInstruction::OpLLVMDefAspaceCfa:
       llvm_unreachable("unsupported CFI opcode");
       break;
+    case MCCFIInstruction::OpNegateRAState: // FIXME properly handle
+                                            // OpNegateRAState
     case MCCFIInstruction::OpGnuArgsSize:
       // do not affect CFI state
       break;
