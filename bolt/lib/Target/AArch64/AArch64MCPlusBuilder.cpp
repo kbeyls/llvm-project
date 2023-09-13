@@ -752,8 +752,20 @@ public:
     unsigned ShiftVal = AArch64_AM::getArithShiftValue(OperandExtension);
     AArch64_AM::ShiftExtendType ExtendType =
         AArch64_AM::getArithExtendType(OperandExtension);
-    if (ShiftVal != 2)
-      llvm_unreachable("Failed to match indirect branch! (fragment 2)");
+    if (ShiftVal != 2) {
+      return false;
+      //llvm_unreachable("Failed to match indirect branch! (fragment 2)");
+      // FIXME: handle the case where ShiftVal != 2.
+      // One such example is triggered by the following code sequence, which
+      // appears in the while, e.g. in glibc
+      //9cc78:       90000586        adrp    x6, 14c000 <sigall_set+0x30>
+      //9cc7c:       9110c0c6        add     x6, x6, #0x430
+      //9cc80:       8b0e08c6        add     x6, x6, x14, lsl #2
+      //9cc84:       b94000c7        ldr     w7, [x6]
+      //9cc88:       8b27c0c6        add     x6, x6, w7, sxtw
+      //9cc8c:       d61f00c0        br      x6
+    }
+
 
     if (ExtendType == AArch64_AM::SXTB)
       ScaleValue = 1LL;
