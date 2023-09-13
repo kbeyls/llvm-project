@@ -9,6 +9,13 @@
 // This file implements a pass that looks for any AArch64 return instructions
 // that may not be protected by PAuth authentication instructions when needed.
 //
+// When needed = the register used to return (almost always X30), is potentially
+// written to between the AUThentication instruction and the RETurn instruction.
+// As all (at least compiler-generated) pac-ret code generation will generate
+// the AUT and the RET in a single basic block, we only look for patterns within
+// a basic block. At worst, we will get false positives due to this, not false
+// negatives.
+//
 //===----------------------------------------------------------------------===//
 
 #include "bolt/Passes/NonPacProtectedRetAnalysis.h"
@@ -32,6 +39,7 @@ void NonPacProtectedRetAnalysis::runOnBB(BinaryFunction &BF,
   const BinaryContext &BC = BF.getBinaryContext();
   bool RetFound = false;
   bool AuthFound = false;
+  bool NonPacRetProtected = false;
   unsigned RetReg = BC.MIB->getNoRegister();
   MCInst &RetInst = BB.back();
   int64_t RetInstOffset = -1;
@@ -57,6 +65,23 @@ void NonPacProtectedRetAnalysis::runOnBB(BinaryFunction &BF,
     if (!RetFound)
       continue;
 
+    if (BC.MIB->hasDefOfPhysReg(Inst, RetReg) &&
+        !BC.MIB->isAuthenticationOfReg(Inst, RetReg)) {
+      // We did see a RET, we did not see an AUT yet, and now we're seeing
+      // a write to RetReg. In other words, register RetReg gets modified
+      // between the last AUT and the RET: it means this RET is not
+      // pac-ret-protected.
+      NonPacRetProtected = true;
+      LLVM_DEBUG({
+        dbgs() << ".. instruction found that writes register ";
+        BC.InstPrinter->printRegName(dbgs(), MCRegister(RetReg));
+        dbgs() << " : ";
+        BC.InstPrinter->printInst(&Inst, 0, "", *BC.STI, dbgs());
+        dbgs() << "\n ";
+      });
+      break;
+    }
+
     if (BC.MIB->isAuthenticationOfReg(Inst, RetReg)) {
       LLVM_DEBUG({
         dbgs() << ".. auth instruction found using register ";
@@ -68,12 +93,13 @@ void NonPacProtectedRetAnalysis::runOnBB(BinaryFunction &BF,
       AuthFound = true;
       break;
     }
-
-    if (BC.MIB->hasDefOfPhysReg(Inst, RetReg)) {
-      break;
-    }
   }
-  if (RetFound && !AuthFound) {
+
+  if (NonPacRetProtected) {
+    LLVM_DEBUG({
+      dbgs() << ".. Therefore, the return instruction is not pac-ret "
+                "protected.\n";
+    });
     // Non-protected ret found
     uint64_t Address =
         BB.getInputAddressRange().first + BF.getAddress() + RetInstOffset * 4;

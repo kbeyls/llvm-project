@@ -86,6 +86,7 @@ f_nonx30_ret:
         bl      g
         add     x0, x0, #3
         ldp     x29, x30, [sp], #16
+        mov     x16, x30
         autiasp
 // CHECK: GS-PACRET: non-protected ret found in function f_nonx30_ret, basic block .LBB{{[0-9]+}}, at address
         ret     x16
