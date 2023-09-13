@@ -470,3 +470,11 @@ f_eret:
 // CHECK: GS-PACRET: non-protected ret found in function f_eret, basic block .LBB{{[0-9]+}}, at address
         eret
         .size f_eret, .-f_eret
+
+        .globl f_movx30reg
+        .type   f_movx30reg,@function
+f_movx30reg:
+// CHECK: GS-PACRET: non-protected ret found in function f_movx30reg, basic block .LBB{{[0-9]+}}, at address
+        mov     x30, x22
+        ret
+        .size f_movx30reg, .-f_movx30reg
