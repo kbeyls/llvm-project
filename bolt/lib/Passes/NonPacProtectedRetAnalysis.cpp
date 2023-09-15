@@ -46,7 +46,6 @@ void processOneInst(MCInst &Inst, const BinaryContext &BC, BinaryFunction &BF,
                     BinaryBasicBlock *BB, unsigned &RetReg, MCInst *&RetInst,
                     const unsigned gadgetAnnotationIndex) {
   if (BC.MIB->isReturn(Inst)) {
-    assert(RetInst == nullptr);
     RetInst = &Inst;
     // RetInstOffset = I;
     //  Returns should always be the last instruction in the basic block
