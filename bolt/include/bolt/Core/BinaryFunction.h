@@ -778,6 +778,24 @@ public:
     return iterator_range<const_cfi_iterator>(cie_begin(), cie_end());
   }
 
+  // Instructions iterators.
+  using Instr_iterator = InstrMapType::iterator;
+  using const_Instr_iterator = InstrMapType::const_iterator;
+  using reverse_Instr_iterator = std::reverse_iterator<Instr_iterator>;
+  using const_reverse_Instr_iterator =
+      std::reverse_iterator<const_Instr_iterator>;
+
+  Instr_iterator inst_begin() { return Instructions.begin(); }
+  const_Instr_iterator inst_begin() const { return Instructions.begin(); }
+  Instr_iterator inst_end() { return Instructions.end(); }
+  const_Instr_iterator inst_end() const { return Instructions.end(); }
+  reverse_Instr_iterator inst_rbegin() { return Instructions.rbegin(); }
+  const_reverse_Instr_iterator inst_rbegin() const {
+    return Instructions.rbegin();
+  }
+  reverse_Instr_iterator inst_rend() { return Instructions.rend(); }
+  const_reverse_Instr_iterator inst_rend() const { return Instructions.rend(); }
+
   /// Iterate over all jump tables associated with this function.
   iterator_range<std::map<uint64_t, JumpTable *>::const_iterator>
   jumpTables() const {

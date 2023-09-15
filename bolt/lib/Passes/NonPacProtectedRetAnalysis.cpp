@@ -34,87 +34,145 @@ raw_ostream &operator<<(raw_ostream &OS,
   return OS;
 }
 
-void NonPacProtectedRetAnalysis::runOnBB(BinaryFunction &BF,
-                                         BinaryBasicBlock &BB) {
-  const BinaryContext &BC = BF.getBinaryContext();
-  bool RetFound = false;
-  bool AuthFound = false;
-  bool NonPacRetProtected = false;
-  unsigned RetReg = BC.MIB->getNoRegister();
-  MCInst &RetInst = BB.back();
-  int64_t RetInstOffset = -1;
-  LLVM_DEBUG({
-    dbgs() << "Analyzing in function " << BF.getPrintName() << ", basic block "
-           << BB.getName() << "\n";
-    BB.dump();
-  });
-  for (int64_t I = BB.size() - 1; I >= 0; --I) {
-    MCInst &Inst = BB.getInstructionAtIndex(I);
-    if (BC.MIB->isReturn(Inst)) {
-      assert(!RetFound);
-      RetFound = true;
-      RetInstOffset = I;
-      RetReg = BC.MIB->getRegUsedAsRetDest(Inst);
-      LLVM_DEBUG({
-        dbgs() << ".. return instruction found using register ";
-        BC.InstPrinter->printRegName(dbgs(), MCRegister(RetReg));
-        dbgs() << "\n";
-      });
-    }
+void reset_track_state(const BinaryContext &BC, unsigned &RetReg,
+                       MCInst *&RetInst) {
+  RetInst = nullptr;
+  RetReg = BC.MIB->getNoRegister();
+}
 
-    if (!RetFound)
-      continue;
-
-    if (BC.MIB->hasDefOfPhysReg(Inst, RetReg) &&
-        !BC.MIB->isAuthenticationOfReg(Inst, RetReg)) {
-      // We did see a RET, we did not see an AUT yet, and now we're seeing
-      // a write to RetReg. In other words, register RetReg gets modified
-      // between the last AUT and the RET: it means this RET is not
-      // pac-ret-protected.
-      NonPacRetProtected = true;
-      LLVM_DEBUG({
-        dbgs() << ".. instruction found that writes register ";
-        BC.InstPrinter->printRegName(dbgs(), MCRegister(RetReg));
-        dbgs() << " : ";
-        BC.InstPrinter->printInst(&Inst, 0, "", *BC.STI, dbgs());
-        dbgs() << "\n ";
-      });
-      break;
-    }
-
-    if (BC.MIB->isAuthenticationOfReg(Inst, RetReg)) {
-      LLVM_DEBUG({
-        dbgs() << ".. auth instruction found using register ";
-        BC.InstPrinter->printRegName(dbgs(), MCRegister(RetReg));
-        dbgs() << " : ";
-        BC.InstPrinter->printInst(&Inst, 0, "", *BC.STI, dbgs());
-        dbgs() << "\n ";
-      });
-      AuthFound = true;
-      break;
-    }
-  }
-
-  if (NonPacRetProtected) {
+// Returns true if a non-protected return was found that should be
+// reported.
+void processOneInst(MCInst &Inst, const BinaryContext &BC, BinaryFunction &BF,
+                    BinaryBasicBlock *BB, unsigned &RetReg, MCInst *&RetInst,
+                    const unsigned gadgetAnnotationIndex) {
+  if (BC.MIB->isReturn(Inst)) {
+    assert(RetInst == nullptr);
+    RetInst = &Inst;
+    // RetInstOffset = I;
+    //  Returns should always be the last instruction in the basic block
+    //  assert(NrInstrScanned == 0);
+    RetReg = BC.MIB->getRegUsedAsRetDest(Inst);
     LLVM_DEBUG({
-      dbgs() << ".. Therefore, the return instruction is not pac-ret "
-                "protected.\n";
+      dbgs() << ".. return instruction found using register ";
+      BC.InstPrinter->printRegName(dbgs(), MCRegister(RetReg));
+      dbgs() << "\n";
     });
-    // Non-protected ret found
-    uint64_t Address =
-        BB.getInputAddressRange().first + BF.getAddress() + RetInstOffset * 4;
-
-    BC.MIB->addAnnotation(RetInst, gadgetAnnotationIndex,
-                          NonPacProtectedRetGadget(Address));
   }
-  // TODO: maybe also scan for authentication oracles? i.e. authentications
-  // not followed by a memory access using the authenticated register?
-  // TODO: maybe also scan for signing oracles?
+  if (RetInst == nullptr)
+    return; // false; // skip to following instruction. continue;
+  if (BC.MIB->hasDefOfPhysReg(Inst, RetReg) &&
+      !BC.MIB->isAuthenticationOfReg(Inst, RetReg)) {
+    // We did see a RET, we did not see an AUT yet, and now we're seeing
+    // a write to RetReg. In other words, register RetReg gets modified
+    // between the last AUT and the RET: it means this RET is not
+    // pac-ret-protected.
+    LLVM_DEBUG({
+      dbgs() << ".. instruction found that writes register ";
+      BC.InstPrinter->printRegName(dbgs(), MCRegister(RetReg));
+      dbgs() << " : ";
+      BC.InstPrinter->printInst(&Inst, 0, "", *BC.STI, dbgs());
+      dbgs() << "\n ";
+    });
+    // TODO: reset scanning state
+    {
+      LLVM_DEBUG({
+        dbgs() << ".. Therefore, the return instruction is not pac-ret "
+                  "protected.\n";
+      });
+      // Non-protected ret found
+      assert(RetInst != nullptr);
+#if 0
+      assert(BB != nullptr);
+
+      uint64_t RetAddress =
+          BF.getAddress() + BB->getInputAddressRange().second - 4;
+#endif
+      // FIXME: improve calculation of real RET address.
+      BC.MIB->addAnnotation(*RetInst, gadgetAnnotationIndex,
+                            NonPacProtectedRetGadget(BF.getAddress()));
+    }
+    reset_track_state(BC, RetReg, RetInst);
+    return; // true;
+    // break;
+  }
+
+  if (BC.MIB->isAuthenticationOfReg(Inst, RetReg)) {
+    LLVM_DEBUG({
+      dbgs() << ".. auth instruction found using register ";
+      BC.InstPrinter->printRegName(dbgs(), MCRegister(RetReg));
+      dbgs() << " : ";
+      BC.InstPrinter->printInst(&Inst, 0, "", *BC.STI, dbgs());
+      dbgs() << "\n ";
+    });
+    reset_track_state(BC, RetReg, RetInst);
+    return; // false;
+    // break;
+  }
+  return; // false;
 }
 
 void NonPacProtectedRetAnalysis::runOnFunction(BinaryFunction &BF) {
-  for (BinaryBasicBlock &BB : BF)
-    runOnBB(BF, BB);
+  LLVM_DEBUG(
+      { dbgs() << "Analyzing in function " << BF.getPrintName() << "\n"; });
+
+  const BinaryContext &BC = BF.getBinaryContext();
+  unsigned RetReg;
+  MCInst *RetInst;
+  // unsigned NrInstrScanned = 0;
+
+  if (BF.hasCFG()) {
+    for (BinaryBasicBlock &BB : BF) {
+      reset_track_state(BC, RetReg, RetInst /*, NonPacRetProtected*/);
+      LLVM_DEBUG({
+        dbgs() << ".. Analyzing basic block " << BB.getName();
+        BB.dump();
+      });
+      for (auto I = BB.rbegin(); I != BB.rend(); I++)
+        processOneInst(*I, BC, BF, &BB, RetReg, RetInst, gadgetAnnotationIndex);
+    }
+    return;
+  }
+  // If for any reason, no CFG could be constructed, there obviously will not
+  // be any basic blocks.
+  // When there are basic blocks, one needs to iterate over the basic blocks;
+  // and then over the instructions in the basic blocks, as the function will
+  // no longer have a direct reference to the instructions.
+  // In case there are no BBs (no CFG), the instructions are still attached to
+  // the BinaryFunction and need to be iterated there.
+  //
+  if (!BF.hasInstructions()) {
+    // FIXME: emit warning.
+    return;
+  }
+  // We scan the whole function sequentially, as that's what an attacker is
+  // looking for. By not scanning across control flow, that means we might
+  // miss gadgets that are split over non-contiguous basic blocks. FIXME:
+  // should this be implemented?
+  // If the function does not have a CFG (e.g. is not Simple),
+  // still try to scan the instructions ignoring BB boundaries?
+  reset_track_state(BC, RetReg, RetInst);
+  for (auto I = BF.inst_rbegin(), E = BF.inst_rend(); I != E; ++I) {
+    MCInst &Inst = (*I).second;
+    processOneInst(Inst, BC, BF, nullptr, RetReg, RetInst,
+                   gadgetAnnotationIndex);
+  }
+}
+
+void reportFoundGadget(const BinaryContext &BC,
+                       unsigned int gadgetAnnotationIndex, MCInst &Inst,
+                       BinaryFunction &BF, BinaryBasicBlock *BB = nullptr) {
+  outs() << "GS-PACRET: "
+         << "non-protected ret found in function " << BF.getPrintName();
+  if (BB != nullptr)
+    outs() << ", basic block " << BB->getName();
+  outs() << ", at address "
+         << llvm::format("%x", BC.MIB
+                                   ->getAnnotationAs<NonPacProtectedRetGadget>(
+                                       Inst, gadgetAnnotationIndex)
+                                   .Address)
+         << "\n"; // FIXME: add "at address ..."
+                  // BB.dump();
+                  // FIXME: print from write inst to ret inst
 }
 
 void NonPacProtectedRetAnalysis::runOnFunctions(BinaryContext &BC) {
@@ -132,25 +190,24 @@ void NonPacProtectedRetAnalysis::runOnFunctions(BinaryContext &BC) {
       BC, ParallelUtilities::SchedulingPolicy::SP_INST_LINEAR, WorkFun,
       SkipFunc, "NonPacProtectedRetAnalysis");
 
-  // FIXME: iterate over all annotations, print out diagnostic which has an
-  // annotation. }
   for (BinaryFunction *BF : BC.getAllBinaryFunctions())
-    for (BinaryBasicBlock &BB : *BF)
-      for (int64_t I = BB.size() - 1; I >= 0; --I) {
-        MCInst &Inst = BB.getInstructionAtIndex(I);
+    if (BF->hasCFG()) {
+      for (BinaryBasicBlock &BB : *BF)
+        for (int64_t I = BB.size() - 1; I >= 0; --I) {
+          MCInst &Inst = BB.getInstructionAtIndex(I);
+          if (BC.MIB->hasAnnotation(Inst, gadgetAnnotationIndex)) {
+            reportFoundGadget(BC, gadgetAnnotationIndex, Inst, *BF, &BB);
+          }
+        }
+    } else {
+      for (auto I = BF->inst_begin(), E = BF->inst_end(); I != E; ++I) {
+        MCInst &Inst = (*I).second;
         if (BC.MIB->hasAnnotation(Inst, gadgetAnnotationIndex)) {
-          outs() << "GS-PACRET: "
-                 << "non-protected ret found in function " << BF->getPrintName()
-                 << ", basic block " << BB.getName() << ", at address "
-                 << llvm::format(
-                        "%x", BC.MIB
-                                  ->getAnnotationAs<NonPacProtectedRetGadget>(
-                                      Inst, gadgetAnnotationIndex)
-                                  .Address)
-                 << "\n"; // FIXME: add "at address ..."
-          BB.dump();
+          reportFoundGadget(BC, gadgetAnnotationIndex, Inst, *BF);
         }
       }
+    }
 }
+
 } // namespace bolt
 } // namespace llvm

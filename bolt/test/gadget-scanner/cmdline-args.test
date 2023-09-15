@@ -13,7 +13,7 @@ NONEXISTINGFILEARG:       gadget-scanner: 'non-existing-file': No such file or d
 RUN: not llvm-bolt-gadget-scanner %p/Inputs/dummy.txt 2>&1 | FileCheck -check-prefix=NOELFFILEARG %s
 NOELFFILEARG:       gadget-scanner: '{{.*}}/Inputs/dummy.txt': The file was not recognized as a valid object file.
 
-RUN: %clang %cflags %p/../Inputs/asm_foo.s %p/../Inputs/asm_main.c -o %t.exe
+RUN: %clang %cflags -Wl,--emit-relocs %p/../Inputs/asm_foo.s %p/../Inputs/asm_main.c -o %t.exe
 RUN: llvm-bolt-gadget-scanner %t.exe 2>&1 | FileCheck -check-prefix=VALIDELFFILEARG --allow-empty %s
 # Check that there are no BOLT-WARNING or BOLT-ERROR output lines
 VALIDELFFILEARG:     BOLT-INFO:
