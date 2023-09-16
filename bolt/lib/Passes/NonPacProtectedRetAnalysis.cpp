@@ -39,11 +39,11 @@ raw_ostream &operator<<(raw_ostream &OS, const MCInstInBBReference &Ref) {
 }
 
 raw_ostream &operator<<(raw_ostream &OS, const MCInstInBFReference &Ref) {
-  OS << "MCInstBBRef<";
+  OS << "MCInstBFRef<";
   if (Ref.BF == nullptr)
     OS << "BF:(null)";
   else
-    OS << "BF:" << Ref.BF->getPrintName() << ":" << Ref.Offset;
+    OS << "BF:" << Ref.BF->getPrintName() << ":" << Ref.getOffset();
   OS << ">";
   return OS;
 }
@@ -57,6 +57,7 @@ raw_ostream &operator<<(raw_ostream &OS, const MCInstReference &Ref) {
     OS << Ref.u.BFRef;
     return OS;
   }
+  llvm_unreachable("");
 }
 
 raw_ostream &operator<<(raw_ostream &OS,
@@ -113,10 +114,8 @@ void processOneInst(const MCInstReference Inst, const BinaryContext &BC,
       });
       // Non-protected ret found
       assert(RetInst.has_value());
-
-      // FIXME: improve calculation of real RET address.
       BC.MIB->addAnnotation(*RetInst, gadgetAnnotationIndex,
-                            NonPacProtectedRetGadget(*RetInst, {}));
+                            NonPacProtectedRetGadget(*RetInst, Inst));
     }
     reset_track_state(BC, RetReg, RetInst);
     return; // true;
@@ -188,22 +187,36 @@ void NonPacProtectedRetAnalysis::runOnFunction(BinaryFunction &BF) {
   }
 }
 
-void reportFoundGadget(const BinaryContext &BC,
-                       unsigned int gadgetAnnotationIndex, const MCInst &Inst,
-                       BinaryFunction &BF, const uint64_t Address,
-                       BinaryBasicBlock *BB = nullptr) {
+void reportFoundGadget(const BinaryContext &BC, const MCInst &Inst,
+                       unsigned int gadgetAnnotationIndex) {
+  auto NPPRG = BC.MIB->getAnnotationAs<NonPacProtectedRetGadget>(
+      Inst, gadgetAnnotationIndex);
+  MCInstReference RetInst = NPPRG.RetInst;
+  BinaryFunction *BF = RetInst.getFunction();
+  BinaryBasicBlock *BB = RetInst.getBasicBlock();
+
   outs() << "GS-PACRET: "
-         << "non-protected ret found in function " << BF.getPrintName();
-  if (BB != nullptr)
+         << "non-protected ret found in function " << BF->getPrintName();
+  if (BB)
     outs() << ", basic block " << BB->getName();
-  outs() << ", at address " << llvm::format("%x", Address)
-#if 0
-      BC.MIB->getAnnotationAs<NonPacProtectedRetGadget>(
-                Inst, gadgetAnnotationIndex).Address)
-#endif
-         << "\n"; // FIXME: add "at address ..."
-                  // BB.dump();
-                  // FIXME: print from write inst to ret inst
+  outs() << ", at address " << llvm::format("%x", RetInst.getAddress()) << "\n";
+  if (BB)
+    BB->dump();
+  else if (NPPRG.OverwritingRetRegInst) {
+    assert(NPPRG.OverwritingRetRegInst->CurrentLocation ==
+           MCInstReference::_BinaryFunction);
+    assert(RetInst.CurrentLocation == MCInstReference::_BinaryFunction);
+    MCInstInBFReference InstRef = NPPRG.OverwritingRetRegInst->u.BFRef;
+    bool printInst = false;
+    for (auto I = BF->inst_begin(), E = BF->inst_end(); I != E; ++I) {
+      if ((*I).first == InstRef.getOffset())
+        printInst = true;
+      if (printInst)
+        BC.printInstruction(outs(), (*I).second, (*I).first, BF);
+      if ((*I).first == RetInst.u.BFRef.getOffset())
+        break;
+    }
+  }
 }
 
 void NonPacProtectedRetAnalysis::runOnFunctions(BinaryContext &BC) {
@@ -226,19 +239,15 @@ void NonPacProtectedRetAnalysis::runOnFunctions(BinaryContext &BC) {
       for (BinaryBasicBlock &BB : *BF)
         for (int64_t I = BB.size() - 1; I >= 0; --I) {
           MCInst &Inst = BB.getInstructionAtIndex(I);
-          const uint64_t Address = BF->getAddress() + BB.getOffset() + I * 4;
           if (BC.MIB->hasAnnotation(Inst, gadgetAnnotationIndex)) {
-            reportFoundGadget(BC, gadgetAnnotationIndex, Inst, *BF, Address,
-                              &BB);
+            reportFoundGadget(BC, Inst, gadgetAnnotationIndex);
           }
         }
     } else {
       for (auto I = BF->inst_begin(), E = BF->inst_end(); I != E; ++I) {
         const MCInst &Inst = (*I).second;
-        const uint32_t Offset = (*I).first;
-        const uint64_t Address = BF->getAddress() + Offset;
         if (BC.MIB->hasAnnotation(Inst, gadgetAnnotationIndex)) {
-          reportFoundGadget(BC, gadgetAnnotationIndex, Inst, *BF, Address);
+          reportFoundGadget(BC, Inst, gadgetAnnotationIndex);
         }
       }
     }

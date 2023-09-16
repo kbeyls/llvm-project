@@ -9,6 +9,9 @@ f_nocfg:
         adr     x0, .l1
         br      x0
 // CHECK: GS-PACRET: non-protected ret found in function f_nocfg, at address
+// CHECK-NEXT:     00000008:   mov     x30, x22
+// CHECK-NEXT:     0000000c:   ret     x30 # Offset: 12 # pacret-gadget: pac-ret-gadget<Ret:MCInstBFRef<BF:f_nocfg:12>, Overwriting:MCInstBFRef<BF:f_nocfg:8>>
+
 .l1:
         mov     x30, x22
         ret
@@ -21,8 +24,11 @@ f_mrets:
         adr     x0, .l2
         br      x0
 // CHECK: GS-PACRET: non-protected ret found in function f_mrets, at address
+// CHECK-NEXT:     00000008:   mov     x30, x21
+// CHECK-NEXT:     0000000c:   ret     x30 # Offset: 12 # pacret-gadget: pac-ret-gadget<Ret:MCInstBFRef<BF:f_mrets:12>, Overwriting:MCInstBFRef<BF:f_mrets:8>>
+
 .l2:
-        mov     x30, x22
+        mov     x30, x21
         ret
         ret
         .size f_mrets, .-f_mrets

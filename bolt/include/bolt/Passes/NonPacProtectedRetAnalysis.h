@@ -35,9 +35,13 @@ struct MCInstInBBReference {
   bool operator==(const MCInstInBBReference &RHS) const {
     return BB == RHS.BB && BBIndex == RHS.BBIndex;
   }
-  operator MCInst&() const {
+  operator MCInst &() const {
     assert(BB != nullptr);
     return BB->getInstructionAtIndex(BBIndex);
+  }
+  uint64_t getAddress() const {
+    // 4 bytes per instruction on AArch64;
+    return BB->getFunction()->getAddress() + BB->getOffset() + BBIndex * 4;
   }
 };
 
@@ -48,13 +52,20 @@ struct MCInstInBFReference {
   uint32_t Offset;
   MCInstInBFReference(BinaryFunction *_BF, uint32_t _Offset)
       : BF(_BF), Offset(_Offset) {}
-  MCInstInBFReference() : BF(nullptr), Offset(0) {}
+  MCInstInBFReference() : BF(nullptr) {}
   bool operator==(const MCInstInBFReference &RHS) const {
     return BF == RHS.BF && Offset == RHS.Offset;
   }
-  operator MCInst&() const {
+  operator MCInst &() const {
     assert(BF != nullptr);
     return *(BF->getInstructionAtOffset(Offset));
+  }
+
+  uint64_t getOffset() const { return Offset; }
+
+  uint64_t getAddress() const {
+    // 4 bytes per instruction on AArch64;
+    return BF->getAddress() + getOffset();
   }
 };
 
@@ -87,15 +98,47 @@ struct MCInstReference {
     case _BinaryFunction:
       return u.BFRef == RHS.u.BFRef;
     }
+    llvm_unreachable("");
   }
 
-  operator MCInst&() const {
+  operator MCInst &() const {
     switch (CurrentLocation) {
     case _BinaryBasicBlock:
       return u.BBRef;
     case _BinaryFunction:
       return u.BFRef;
     }
+    llvm_unreachable("");
+  }
+
+  uint64_t getAddress() const {
+    switch (CurrentLocation) {
+    case _BinaryBasicBlock:
+      return u.BBRef.getAddress();
+    case _BinaryFunction:
+      return u.BFRef.getAddress();
+    }
+    llvm_unreachable("");
+  }
+
+  BinaryFunction *getFunction() const {
+    switch (CurrentLocation) {
+    case _BinaryFunction:
+      return u.BFRef.BF;
+    case _BinaryBasicBlock:
+      return u.BBRef.BB->getFunction();
+    }
+    llvm_unreachable("");
+  }
+
+  BinaryBasicBlock *getBasicBlock() const {
+    switch (CurrentLocation) {
+    case _BinaryFunction:
+      return nullptr;
+    case _BinaryBasicBlock:
+      return u.BBRef.BB;
+    }
+    llvm_unreachable("");
   }
 };
 
