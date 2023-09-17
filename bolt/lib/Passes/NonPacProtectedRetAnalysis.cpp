@@ -106,7 +106,6 @@ void processOneInst(const MCInstReference Inst, const BinaryContext &BC,
       BC.InstPrinter->printInst(&(MCInst &)Inst, 0, "", *BC.STI, dbgs());
       dbgs() << "\n ";
     });
-    // TODO: reset scanning state
     {
       LLVM_DEBUG({
         dbgs() << ".. Therefore, the return instruction is not pac-ret "
@@ -118,11 +117,13 @@ void processOneInst(const MCInstReference Inst, const BinaryContext &BC,
                             NonPacProtectedRetGadget(*RetInst, Inst));
     }
     reset_track_state(BC, RetReg, RetInst);
-    return; // true;
-    // break;
+    return;
   }
 
-  if (BC.MIB->isAuthenticationOfReg(Inst, RetReg)) {
+  // Gadget scanning state needs to be reset when encountering an authentication
+  // instruction or an unconditional branch.
+  if (BC.MIB->isAuthenticationOfReg(Inst, RetReg) ||
+      BC.MIB->isUnconditionalBranch(Inst)) {
     LLVM_DEBUG({
       dbgs() << ".. auth instruction found using register ";
       BC.InstPrinter->printRegName(dbgs(), MCRegister(RetReg));
@@ -131,10 +132,9 @@ void processOneInst(const MCInstReference Inst, const BinaryContext &BC,
       dbgs() << "\n ";
     });
     reset_track_state(BC, RetReg, RetInst);
-    return; // false;
-    // break;
+    return;
   }
-  return; // false;
+  return;
 }
 
 void NonPacProtectedRetAnalysis::runOnFunction(BinaryFunction &BF) {

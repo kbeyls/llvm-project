@@ -32,3 +32,30 @@ f_mrets:
         ret
         ret
         .size f_mrets, .-f_mrets
+
+/// Verify that the scanner does not look across unconditional branches, but
+/// does look across conditional branches
+        .globl f_branches
+        .type   f_branches,@function
+f_branches:
+        adr     x0, 1f
+        br      x0
+1:
+        mov    x30, x0
+        b      2f
+        ret    x30
+// The next CHECK line will verify that there is only one gadget reported on this
+// function, and it's not on this instructions.
+2:
+        mov    x30, x1
+        cbz    x0, 3f
+        ret    x30
+3:
+// CHECK: GS-PACRET: non-protected ret found in function f_branches, at address
+// CHECK-NEXT:    00000014:   mov     x30, x1
+// CHECK-NEXT:    00000018:   cbz     x0, .Ltmp4 # Offset: 24
+// CHECK-NEXT:    0000001c:   ret     x30 # Offset: 28 # pacret-gadget: pac-ret-gadget<Ret:MCInstBFRef<BF:f_branches:28>, Overwriting:MCInstBFRef<BF:f_branches:20>>
+// Verify only one gadget is reported on this function:
+// CHECK-NOT: GS-PACRET: non-protected ret found in function f_branches
+        b      1b
+        .size f_branches, .-f_branches
