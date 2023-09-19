@@ -35,6 +35,11 @@ struct MCInstInBBReference {
   bool operator==(const MCInstInBBReference &RHS) const {
     return BB == RHS.BB && BBIndex == RHS.BBIndex;
   }
+  bool operator<(const MCInstInBBReference &RHS) const {
+    if (BB != RHS.BB)
+      return BB < RHS.BB;
+    return BBIndex < RHS.BBIndex;
+  }
   operator MCInst &() const {
     assert(BB != nullptr);
     return BB->getInstructionAtIndex(BBIndex);
@@ -55,6 +60,11 @@ struct MCInstInBFReference {
   MCInstInBFReference() : BF(nullptr) {}
   bool operator==(const MCInstInBFReference &RHS) const {
     return BF == RHS.BF && Offset == RHS.Offset;
+  }
+  bool operator<(const MCInstInBFReference &RHS) const {
+    if (BF != RHS.BF)
+      return BF < RHS.BF;
+    return Offset < RHS.Offset;
   }
   operator MCInst &() const {
     assert(BF != nullptr);
@@ -88,6 +98,18 @@ struct MCInstReference {
       : MCInstReference(MCInstInBBReference(BB, BBIndex)) {}
   MCInstReference(BinaryFunction *BF, uint32_t Offset)
       : MCInstReference(MCInstInBFReference(BF, Offset)) {}
+
+  bool operator<(const MCInstReference &RHS) const {
+    if (CurrentLocation != RHS.CurrentLocation)
+      return CurrentLocation < RHS.CurrentLocation;
+    switch (CurrentLocation) {
+    case _BinaryBasicBlock:
+      return u.BBRef < RHS.u.BBRef;
+    case _BinaryFunction:
+      return u.BFRef < RHS.u.BFRef;
+    }
+    llvm_unreachable("");
+  }
 
   bool operator==(const MCInstReference &RHS) const {
     if (CurrentLocation != RHS.CurrentLocation)
@@ -147,18 +169,21 @@ raw_ostream &operator<<(raw_ostream &OS, const MCInstReference &);
 struct NonPacProtectedRetGadget {
   MCInstReference RetInst;
   std::optional<MCInstReference> OverwritingRetRegInst;
-/// address of ret instruction? -> not needed.
-/// register of ret instruction?
-#if 0
-  uint64_t Address;
-  bool operator<(const NonPacProtectedRetGadget &RHS) const {
-    return Address < RHS.Address;
-  }
-#endif
+  /// address of ret instruction? -> not needed.
+  /// register of ret instruction?
   bool operator==(const NonPacProtectedRetGadget &RHS) const {
     return RetInst == RHS.RetInst &&
            OverwritingRetRegInst == RHS.OverwritingRetRegInst;
   }
+#if 0
+  bool operator<(const NonPacProtectedRetGadget &RHS) const {
+    if (RetInst < RHS.RetInst)
+      return true;
+    if (RetInst == RHS.RetInst)
+      return OverwritingRetRegInst < RHS.OverwritingRetRegInst;
+    return false;
+  }
+#endif
   NonPacProtectedRetGadget(
       MCInstReference _RetInst,
       std::optional<MCInstReference> _OverwritingRetRegInst)
@@ -169,7 +194,8 @@ raw_ostream &operator<<(raw_ostream &OS, const NonPacProtectedRetGadget &NPPRG);
 
 class NonPacProtectedRetAnalysis : public BinaryFunctionPass {
   void runOnBB(BinaryFunction &Function, BinaryBasicBlock &BB);
-  void runOnFunction(BinaryFunction &Function);
+  void runOnFunction(BinaryFunction &Function,
+                     MCPlusBuilder::AllocatorIdTy AllocatorId);
   unsigned gadgetAnnotationIndex;
 
 public:

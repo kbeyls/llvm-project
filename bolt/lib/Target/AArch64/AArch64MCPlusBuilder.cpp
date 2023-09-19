@@ -149,8 +149,44 @@ public:
     return false;
   }
 
+  MCPhysReg getAuthenticatedReg(const MCInst &Inst) const override {
+    switch (Inst.getOpcode()) {
+    case AArch64::AUTIAZ:
+    case AArch64::AUTIBZ:
+    case AArch64::AUTIASP:
+    case AArch64::AUTIBSP:
+    case AArch64::RETAA:
+    case AArch64::RETAB:
+      return AArch64::LR;
+    case AArch64::AUTIA1716:
+    case AArch64::AUTIB1716:
+      return AArch64::X17;
+    case AArch64::ERETAA:
+    case AArch64::ERETAB:
+      return AArch64::LR;
+
+    case AArch64::AUTIA:
+    case AArch64::AUTIB:
+    case AArch64::AUTDA:
+    case AArch64::AUTDB:
+    case AArch64::AUTIZA:
+    case AArch64::AUTIZB:
+    case AArch64::AUTDZA:
+    case AArch64::AUTDZB:
+      assert(Inst.getOperand(0).isReg());
+      return Inst.getOperand(0).getReg();
+
+    default:
+      return getNoRegister();
+    }
+  }
+
   bool isAuthenticationOfReg(const MCInst &Inst,
                              const unsigned RegAuthenticated) const override {
+    if (RegAuthenticated == getNoRegister())
+      return false;
+    return getAuthenticatedReg(Inst) == RegAuthenticated;
+#if 0
     switch (Inst.getOpcode()) {
     case AArch64::AUTIAZ:
     case AArch64::AUTIBZ:
@@ -180,6 +216,7 @@ public:
     default:
       return false;
     }
+#endif
   }
 
   llvm::MCPhysReg getRegUsedAsRetDest(const MCInst &Inst) const override {
@@ -754,18 +791,17 @@ public:
         AArch64_AM::getArithExtendType(OperandExtension);
     if (ShiftVal != 2) {
       return false;
-      //llvm_unreachable("Failed to match indirect branch! (fragment 2)");
-      // FIXME: handle the case where ShiftVal != 2.
-      // One such example is triggered by the following code sequence, which
-      // appears in the while, e.g. in glibc
-      //9cc78:       90000586        adrp    x6, 14c000 <sigall_set+0x30>
-      //9cc7c:       9110c0c6        add     x6, x6, #0x430
-      //9cc80:       8b0e08c6        add     x6, x6, x14, lsl #2
-      //9cc84:       b94000c7        ldr     w7, [x6]
-      //9cc88:       8b27c0c6        add     x6, x6, w7, sxtw
-      //9cc8c:       d61f00c0        br      x6
+      // llvm_unreachable("Failed to match indirect branch! (fragment 2)");
+      //  FIXME: handle the case where ShiftVal != 2.
+      //  One such example is triggered by the following code sequence, which
+      //  appears in the while, e.g. in glibc
+      // 9cc78:       90000586        adrp    x6, 14c000 <sigall_set+0x30>
+      // 9cc7c:       9110c0c6        add     x6, x6, #0x430
+      // 9cc80:       8b0e08c6        add     x6, x6, x14, lsl #2
+      // 9cc84:       b94000c7        ldr     w7, [x6]
+      // 9cc88:       8b27c0c6        add     x6, x6, w7, sxtw
+      // 9cc8c:       d61f00c0        br      x6
     }
-
 
     if (ExtendType == AArch64_AM::SXTB)
       ScaleValue = 1LL;
@@ -998,14 +1034,22 @@ public:
     default:
       llvm_unreachable("Failed to invert branch opcode");
       return Opcode;
-    case AArch64::TBZW:     return AArch64::TBNZW;
-    case AArch64::TBZX:     return AArch64::TBNZX;
-    case AArch64::TBNZW:    return AArch64::TBZW;
-    case AArch64::TBNZX:    return AArch64::TBZX;
-    case AArch64::CBZW:     return AArch64::CBNZW;
-    case AArch64::CBZX:     return AArch64::CBNZX;
-    case AArch64::CBNZW:    return AArch64::CBZW;
-    case AArch64::CBNZX:    return AArch64::CBZX;
+    case AArch64::TBZW:
+      return AArch64::TBNZW;
+    case AArch64::TBZX:
+      return AArch64::TBNZX;
+    case AArch64::TBNZW:
+      return AArch64::TBZW;
+    case AArch64::TBNZX:
+      return AArch64::TBZX;
+    case AArch64::CBZW:
+      return AArch64::CBNZW;
+    case AArch64::CBZX:
+      return AArch64::CBNZX;
+    case AArch64::CBNZW:
+      return AArch64::CBZW;
+    case AArch64::CBNZX:
+      return AArch64::CBZX;
     }
   }
 
@@ -1019,10 +1063,14 @@ public:
     switch (Opcode) {
     default:
       return Opcode;
-    case AArch64::TBNZW:    return AArch64::TBZW;
-    case AArch64::TBNZX:    return AArch64::TBZX;
-    case AArch64::CBNZW:    return AArch64::CBZW;
-    case AArch64::CBNZX:    return AArch64::CBZX;
+    case AArch64::TBNZW:
+      return AArch64::TBZW;
+    case AArch64::TBNZX:
+      return AArch64::TBZX;
+    case AArch64::CBNZW:
+      return AArch64::CBZW;
+    case AArch64::CBNZX:
+      return AArch64::CBZX;
     }
   }
 
@@ -1049,17 +1097,28 @@ public:
     default:
       llvm_unreachable("Failed to get pcrel encoding size");
       return 0;
-    case AArch64::TBZW:     return 16;
-    case AArch64::TBZX:     return 16;
-    case AArch64::TBNZW:    return 16;
-    case AArch64::TBNZX:    return 16;
-    case AArch64::CBZW:     return 21;
-    case AArch64::CBZX:     return 21;
-    case AArch64::CBNZW:    return 21;
-    case AArch64::CBNZX:    return 21;
-    case AArch64::B:        return 28;
-    case AArch64::BL:       return 28;
-    case AArch64::Bcc:      return 21;
+    case AArch64::TBZW:
+      return 16;
+    case AArch64::TBZX:
+      return 16;
+    case AArch64::TBNZW:
+      return 16;
+    case AArch64::TBNZX:
+      return 16;
+    case AArch64::CBZW:
+      return 21;
+    case AArch64::CBZX:
+      return 21;
+    case AArch64::CBNZW:
+      return 21;
+    case AArch64::CBNZX:
+      return 21;
+    case AArch64::B:
+      return 28;
+    case AArch64::BL:
+      return 28;
+    case AArch64::Bcc:
+      return 21;
     }
   }
 

@@ -20,6 +20,8 @@
 
 #include "bolt/Passes/NonPacProtectedRetAnalysis.h"
 #include "bolt/Core/ParallelUtilities.h"
+#include "bolt/Passes/DataflowAnalysis.h"
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/Support/Format.h"
 
@@ -67,6 +69,222 @@ raw_ostream &operator<<(raw_ostream &OS,
   OS << "Overwriting:" << NPPRG.OverwritingRetRegInst << ">";
   return OS;
 }
+
+#if 0
+struct State {
+  unsigned RetReg; // if different from NoRegister, this is the register used by
+                   // the next return instruction.
+                   // TODO: what to do when there are multiple such registers?
+                   // This should be a SmallSet/SmallVector?
+};
+#endif
+
+// We assume that there will be very few gadgets, or alternatively, the
+// far majority of code will have the required security properties.
+// Therefore, we assume that the most efficient method to find those
+// gadgets is to first scan in each function if there is a violation of
+// the security property at all. If there is, we can do a second scan
+// which tracks a lot more detail, so that we can produce good
+// diagnostic messages.
+
+// As state, store for each register if at this program point:
+// (a) it is used next by a RETurn instruction, to determine the address to
+// "return" to.
+// (b) the register is in an "unauthenticated" state, i.e. written
+// to by an operation that isn't an authentication instruction.
+// TODO:
+// union of LiveRetRegs: simply the union.
+// union of UnauthenticatedRegs: simply the union.
+// but for reporting, we also need to keep track of which MCInst made the
+// LiveRetReg dirty...
+
+// Let's try an alternative way:
+// We should report any time when:
+// A register is "Ret-live", (or for PAuthABI, any time a pointer is used that
+// should be signed before storing to memory, i.e. at least all code pointers),
+// if it is: (a) Used by such an instruction, without being overwritten in
+// between. Therefore, in the analysis, we need to track which registers (and
+// for reporting purposes, leading up to which ret instructions) are live. Then,
+// with a simple scan we can check each instruction if they do write to any such
+// "Ret-live", or "RawCodePointerLive" registers.
+
+// Yet another way: let's track the registers that have been written (def-ed),
+// since last authenticated. Those are exactly the registers containing values
+// that should not be trusted (as they could have changed since the last time
+// they were authenticated). For pac-ret, any return using such a register is
+// a gadget to be reported. For PAuthABI, any indirect control flow using such
+// a register should be reported?
+struct State {
+  // FIXME: for tracking PAuthABI, probably the SmallSet needs to be made bigger
+  // (5 or 10?)
+  // SmallSet<llvm::MCPhysReg, 1> LiveRawPointerRegs;
+  BitVector NonAutClobRegs;
+  // SmallSet<const MCInst *, 1> ClobberingInsts;
+
+  State() {}
+  State(uint16_t NumRegs)
+      : NonAutClobRegs() //, UnauthenticatedRegs(NumRegs),
+                         // ClobberingInsts()
+  {}
+  State &operator|=(const State &StateIn) {
+    NonAutClobRegs |= StateIn.NonAutClobRegs;
+    // for (auto Reg : StateIn.LiveRawPointerRegs)
+    //   LiveRawPointerRegs.insert(Reg);
+    //  for (auto c : StateIn.ClobberingInsts)
+    //    ClobberingInsts.insert(c);
+    return *this;
+  }
+  bool operator==(const State &RHS) const {
+    return NonAutClobRegs == RHS.NonAutClobRegs;
+    //    &&UnauthenticatedRegs == RHS.UnauthenticatedRegs &&ClobberingInsts ==
+    //        RHS.ClobberingInsts;
+  }
+  bool operator!=(const State &RHS) const { return !((*this) == RHS); }
+};
+
+raw_ostream &operator<<(raw_ostream &OS, const State &S) {
+  OS << "pacret-state<";
+#if 0
+  OS <<"LiveRawPointerRegs:";
+  for (auto Reg : S.LiveRawPointerRegs)
+    OS << Reg << " ";
+  OS << ", ";
+#endif
+#if 1
+  OS << "NonAutClobRegs: " << S.NonAutClobRegs;
+#endif
+#if 0
+  for (auto c : S.ClobberingInsts)
+    OS << c << " ";
+#endif
+  OS << ">";
+  return OS;
+}
+
+class PacStatePrinter {
+public:
+  void print(raw_ostream &OS, const State &State) const;
+  explicit PacStatePrinter(const BinaryContext &BC) : BC(BC) {}
+
+private:
+  const BinaryContext &BC;
+};
+
+void PacStatePrinter::print(raw_ostream &OS, const State &S) const {
+  RegStatePrinter RegStatePrinter(BC);
+  OS << "pacret-state<";
+#if 0
+  OS << "LiveRawPointerRegs: ";
+  for (auto Reg : S.LiveRawPointerRegs)
+    OS << BC.MRI->getName(Reg) << " ";
+#endif
+#if 0
+  OS << ", ";
+#endif
+#if 1
+  OS << "NonAutClobRegs: ";
+  RegStatePrinter.print(OS, S.NonAutClobRegs);
+#endif
+#if 0
+  OS << ", ClobberingInsts: ";
+  for (auto c : S.ClobberingInsts) {
+    OS << c;
+  }
+#endif
+  OS << ">";
+}
+
+class PacRetAnalysis
+    : public DataflowAnalysis<PacRetAnalysis, State, false /*Backward*/,
+                              PacStatePrinter> {
+  using Parent =
+      DataflowAnalysis<PacRetAnalysis, State, false, PacStatePrinter>;
+  friend Parent;
+
+public:
+  PacRetAnalysis(BinaryFunction &BF, MCPlusBuilder::AllocatorIdTy AllocId)
+      : Parent(BF, AllocId), NumRegs(BF.getBinaryContext().MRI->getNumRegs()) {}
+  virtual ~PacRetAnalysis() {}
+
+  void run() { Parent::run(); }
+
+protected:
+  const uint16_t NumRegs;
+
+  void preflight() {}
+
+  State getStartingStateAtBB(const BinaryBasicBlock &BB) {
+    return State(NumRegs);
+  }
+
+  State getStartingStateAtPoint(const MCInst &Point) { return State(NumRegs); }
+
+  void doConfluence(State &StateOut, const State &StateIn) {
+    PacStatePrinter P(BC);
+    LLVM_DEBUG({
+      dbgs() << " PacRetAnalysis::Confluence(\n";
+      dbgs() << "   State 1: ";
+      P.print(dbgs(), StateOut);
+      dbgs() << "\n";
+      dbgs() << "   State 2: ";
+      P.print(dbgs(), StateIn);
+      dbgs() << ")\n";
+    });
+    StateOut |= StateIn;
+    LLVM_DEBUG({
+      dbgs() << "   merged state: ";
+      P.print(dbgs(), StateOut);
+      dbgs() << "\n";
+    });
+  }
+
+  State computeNext(const MCInst &Point, const State &Cur) {
+    PacStatePrinter P(BC);
+    LLVM_DEBUG({
+      dbgs() << " PacRetAnalysis::Compute(";
+      BC.InstPrinter->printInst(&(MCInst &)Point, 0, "", *BC.STI, dbgs());
+      dbgs() << ", ";
+      P.print(dbgs(), Cur);
+      dbgs() << ")\n";
+    });
+#if 0
+    if (BC.MIB->isReturn(Point)) {
+      const llvm::MCPhysReg Reg = BC.MIB->getRegUsedAsRetDest(Point);
+      State Res(NumRegs);
+      Res.LiveRawPointerRegs.insert(Reg);
+      return Res;
+    }
+#endif
+    State Next = Cur;
+    BitVector Written = BitVector(NumRegs, false);
+    BC.MIB->getWrittenRegs(Point, Written);
+    Next.NonAutClobRegs |= Written;
+    MCPhysReg AutReg = BC.MIB->getAuthenticatedReg(Point);
+    if (AutReg != BC.MIB->getNoRegister()) {
+      Next.NonAutClobRegs.reset(
+          BC.MIB->getAliases(AutReg, /*OnlySmaller=*/true));
+    }
+#if 0
+      for (MCPhysReg Reg : Cur.LiveRawPointerRegs) {
+#if 0
+      if (BC.MIB->hasDefOfPhysReg(Point, RetReg) &&
+          !BC.MIB->isAuthenticationOfReg(Point, RetReg)) {
+        Next.ClobberingInsts.insert(&Point);
+      }
+#endif
+      if (BC.MIB->hasDefOfPhysReg(Point, Reg)
+          // BC.MIB->isAuthenticationOfReg(Point, RetReg) ||
+          // BC.MIB->isUnconditionalBranch(Point)
+      ) {
+        Next.LiveRawPointerRegs.erase(Reg);
+      }
+  }
+#endif
+    return Next;
+  }
+
+  StringRef getAnnotationName() const { return StringRef("PacRetAnalysis"); }
+};
 
 void reset_track_state(const BinaryContext &BC, unsigned &RetReg,
                        std::optional<MCInstReference> &RetInst) {
@@ -120,8 +338,8 @@ void processOneInst(const MCInstReference Inst, const BinaryContext &BC,
     return;
   }
 
-  // Gadget scanning state needs to be reset when encountering an authentication
-  // instruction or an unconditional branch.
+  // Gadget scanning state needs to be reset when encountering an
+  // authentication instruction or an unconditional branch.
   if (BC.MIB->isAuthenticationOfReg(Inst, RetReg) ||
       BC.MIB->isUnconditionalBranch(Inst)) {
     LLVM_DEBUG({
@@ -137,9 +355,11 @@ void processOneInst(const MCInstReference Inst, const BinaryContext &BC,
   return;
 }
 
-void NonPacProtectedRetAnalysis::runOnFunction(BinaryFunction &BF) {
+void NonPacProtectedRetAnalysis::runOnFunction(
+    BinaryFunction &BF, MCPlusBuilder::AllocatorIdTy AllocatorId) {
   LLVM_DEBUG(
       { dbgs() << "Analyzing in function " << BF.getPrintName() << "\n"; });
+  LLVM_DEBUG({ BF.dump(); });
 
   const BinaryContext &BC = BF.getBinaryContext();
   unsigned RetReg;
@@ -147,6 +367,58 @@ void NonPacProtectedRetAnalysis::runOnFunction(BinaryFunction &BF) {
   // unsigned NrInstrScanned = 0;
 
   if (BF.hasCFG()) {
+    PacRetAnalysis PRA(BF, AllocatorId);
+    PRA.run();
+    LLVM_DEBUG({
+      dbgs() << " After PacRetAnalysis:\n";
+      BF.dump();
+    });
+    // Now scan the CFG for instructions that overwrite any of the live
+    // LiveRawPointerRegs. If it's not an authentication instruction,
+    // that violates the security property.
+    for (BinaryBasicBlock &BB : BF) {
+      for (int64_t I = BB.size() - 1; I >= 0; --I) {
+        const MCInst &Inst = BB.getInstructionAtIndex(I);
+        if (BC.MIB->isReturn(Inst)) {
+          MCPhysReg RetReg = BC.MIB->getRegUsedAsRetDest(Inst);
+          LLVM_DEBUG({
+            dbgs() << "  Found RET inst: ";
+            BC.printInstruction(dbgs(), Inst);
+            dbgs() << "    RetReg: " << BC.MRI->getName(RetReg)
+                   << "; authenticatesReg: "
+                   << BC.MIB->isAuthenticationOfReg(Inst, RetReg) << "\n";
+          });
+          if (BC.MIB->isAuthenticationOfReg(Inst, RetReg))
+            break;
+          BitVector DirtyRawRegs = PRA.getStateAt(Inst)->NonAutClobRegs;
+          LLVM_DEBUG({
+            dbgs() << "  DirtyRawRegs at Ret: ";
+            RegStatePrinter RSP(BC);
+            RSP.print(dbgs(), DirtyRawRegs);
+            dbgs() << "\n";
+          });
+          DirtyRawRegs &= BC.MIB->getAliases(RetReg, /*OnlySmaller=*/true);
+          LLVM_DEBUG({
+            dbgs() << "  Intersection with RetReg: ";
+            RegStatePrinter RSP(BC);
+            RSP.print(dbgs(), DirtyRawRegs);
+            dbgs() << "\n";
+          });
+          if (DirtyRawRegs.any()) {
+#if 1
+              // This return instruction needs to be reported
+              BC.MIB->addAnnotation(
+                  MCInstInBBReference(&BB, I), gadgetAnnotationIndex,
+                  NonPacProtectedRetGadget(MCInstInBBReference(&BB, I),
+                                           {} /*, Inst*/));
+#endif
+          }
+        }
+      }
+    }
+    // TODO: scan for any reports on PRA analysis?
+
+#if 0
     for (BinaryBasicBlock &BB : BF) {
       reset_track_state(BC, RetReg, RetInst /*, NonPacRetProtected*/);
       LLVM_DEBUG({
@@ -159,14 +431,14 @@ void NonPacProtectedRetAnalysis::runOnFunction(BinaryFunction &BF) {
       }
     }
     return;
+#endif
   }
-  // If for any reason, no CFG could be constructed, there obviously will not
-  // be any basic blocks.
-  // When there are basic blocks, one needs to iterate over the basic blocks;
-  // and then over the instructions in the basic blocks, as the function will
-  // no longer have a direct reference to the instructions.
-  // In case there are no BBs (no CFG), the instructions are still attached to
-  // the BinaryFunction and need to be iterated there.
+  // If for any reason, no CFG could be constructed, there obviously will
+  // not be any basic blocks. When there are basic blocks, one needs to
+  // iterate over the basic blocks; and then over the instructions in the
+  // basic blocks, as the function will no longer have a direct reference to
+  // the instructions. In case there are no BBs (no CFG), the instructions
+  // are still attached to the BinaryFunction and need to be iterated there.
   //
   if (!BF.hasInstructions()) {
     // FIXME: emit warning.
@@ -222,27 +494,37 @@ void reportFoundGadget(const BinaryContext &BC, const MCInst &Inst,
 void NonPacProtectedRetAnalysis::runOnFunctions(BinaryContext &BC) {
   gadgetAnnotationIndex = BC.MIB->getOrCreateAnnotationIndex("pacret-gadget");
 
-  ParallelUtilities::WorkFuncTy WorkFun = [&](BinaryFunction &BF) {
-    runOnFunction(BF);
-  };
+  ParallelUtilities::WorkFuncWithAllocTy WorkFun =
+      [&](BinaryFunction &BF, MCPlusBuilder::AllocatorIdTy AllocatorId) {
+        runOnFunction(BF, AllocatorId);
+      };
 
   ParallelUtilities::PredicateTy SkipFunc = [&](const BinaryFunction &BF) {
     return false; // BF.shouldPreserveNops();
   };
 
-  ParallelUtilities::runOnEachFunction(
+  ParallelUtilities::runOnEachFunctionWithUniqueAllocId(
       BC, ParallelUtilities::SchedulingPolicy::SP_INST_LINEAR, WorkFun,
       SkipFunc, "NonPacProtectedRetAnalysis");
 
   for (BinaryFunction *BF : BC.getAllBinaryFunctions())
     if (BF->hasCFG()) {
-      for (BinaryBasicBlock &BB : *BF)
+#if 0
+      for (BinaryBasicBlock &BB : *BF) {
+        LLVM_DEBUG({
+          dbgs() << " After PacRetAnalysis:\n";
+          BB.dump();
+        });
+#else
+      for (BinaryBasicBlock &BB : *BF) {
         for (int64_t I = BB.size() - 1; I >= 0; --I) {
           MCInst &Inst = BB.getInstructionAtIndex(I);
           if (BC.MIB->hasAnnotation(Inst, gadgetAnnotationIndex)) {
             reportFoundGadget(BC, Inst, gadgetAnnotationIndex);
           }
         }
+#endif
+      }
     } else {
       for (auto I = BF->inst_begin(), E = BF->inst_end(); I != E; ++I) {
         const MCInst &Inst = (*I).second;

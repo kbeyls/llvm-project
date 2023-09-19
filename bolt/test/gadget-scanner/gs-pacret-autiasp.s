@@ -478,3 +478,5 @@ f_movx30reg:
         mov     x30, x22
         ret
         .size f_movx30reg, .-f_movx30reg
+
+// TODO: add test to see if registers clobbered by a call are picked up.

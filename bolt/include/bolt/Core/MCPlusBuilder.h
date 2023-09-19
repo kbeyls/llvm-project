@@ -534,6 +534,11 @@ public:
     return Analysis->isReturn(Inst);
   }
 
+  virtual MCPhysReg getAuthenticatedReg(const MCInst &Inst) const {
+    llvm_unreachable("not implemented");
+    return false;
+  }
+
   virtual bool isAuthenticationOfReg(const MCInst &Inst,
                                      const unsigned RegAuthenticated) const {
     llvm_unreachable("not implemented");
