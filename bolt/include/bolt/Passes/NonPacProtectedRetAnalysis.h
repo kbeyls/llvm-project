@@ -12,6 +12,7 @@
 #include "bolt/Core/BinaryContext.h"
 #include "bolt/Core/BinaryFunction.h"
 #include "bolt/Passes/BinaryPasses.h"
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/Support/Errc.h"
 #include <optional>
 #include <queue>
@@ -193,9 +194,13 @@ struct NonPacProtectedRetGadget {
 raw_ostream &operator<<(raw_ostream &OS, const NonPacProtectedRetGadget &NPPRG);
 
 class NonPacProtectedRetAnalysis : public BinaryFunctionPass {
-  void runOnBB(BinaryFunction &Function, BinaryBasicBlock &BB);
+  // void runOnBB(BinaryFunction &Function, BinaryBasicBlock &BB);
   void runOnFunction(BinaryFunction &Function,
                      MCPlusBuilder::AllocatorIdTy AllocatorId);
+  template <class PRAnalysis>
+  SmallSet<MCPhysReg, 1>
+  ComputeDFState(PRAnalysis &PRA, BinaryFunction &BF,
+                 MCPlusBuilder::AllocatorIdTy AllocatorId);
   unsigned gadgetAnnotationIndex;
 
 public:
