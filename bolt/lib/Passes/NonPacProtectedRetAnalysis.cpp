@@ -66,18 +66,12 @@ raw_ostream &operator<<(raw_ostream &OS,
                         const NonPacProtectedRetGadget &NPPRG) {
   OS << "pac-ret-gadget<";
   OS << "Ret:" << NPPRG.RetInst << ", ";
-  OS << "Overwriting:" << NPPRG.OverwritingRetRegInst << ">";
+  OS << "Overwriting:[";
+  for (auto Ref : NPPRG.OverwritingRetRegInst)
+    OS << Ref << " ";
+  OS << "]>";
   return OS;
 }
-
-#if 0
-struct State {
-  unsigned RetReg; // if different from NoRegister, this is the register used by
-                   // the next return instruction.
-                   // TODO: what to do when there are multiple such registers?
-                   // This should be a SmallSet/SmallVector?
-};
-#endif
 
 // We assume that there will be very few gadgets, or alternatively, the
 // far majority of code will have the required security properties.
@@ -122,22 +116,13 @@ struct State {
   // SmallSet<const MCInst *, 1> ClobberingInsts;
 
   State() {}
-  State(uint16_t NumRegs)
-      : NonAutClobRegs(NumRegs, false) //, UnauthenticatedRegs(NumRegs),
-                         // ClobberingInsts()
-  {}
+  State(uint16_t NumRegs) : NonAutClobRegs(NumRegs, false) {}
   State &operator|=(const State &StateIn) {
     NonAutClobRegs |= StateIn.NonAutClobRegs;
-    // for (auto Reg : StateIn.LiveRawPointerRegs)
-    //   LiveRawPointerRegs.insert(Reg);
-    //  for (auto c : StateIn.ClobberingInsts)
-    //    ClobberingInsts.insert(c);
     return *this;
   }
   bool operator==(const State &RHS) const {
     return NonAutClobRegs == RHS.NonAutClobRegs;
-    //    &&UnauthenticatedRegs == RHS.UnauthenticatedRegs &&ClobberingInsts ==
-    //        RHS.ClobberingInsts;
   }
   bool operator!=(const State &RHS) const { return !((*this) == RHS); }
 };
@@ -148,7 +133,7 @@ struct StateWithInsts : public State {
   std::vector<SmallPtrSet<const MCInst *, 4>> LastInstWritingReg;
   StateWithInsts() : State() {}
   StateWithInsts(uint16_t NumRegs, uint16_t NumRegsToTrack)
-      : State(NumRegs), LastInstWritingReg(NumRegsToTrack/*, SmallPtrSet<const MCInst*,4>()*/) {}
+      : State(NumRegs), LastInstWritingReg(NumRegsToTrack) {}
   StateWithInsts &operator|=(const StateWithInsts &StateIn) {
     State::operator|=(StateIn);
     for (unsigned I = 0; I < LastInstWritingReg.size(); ++I)
@@ -175,8 +160,9 @@ raw_ostream &operator<<(raw_ostream &OS, const StateWithInsts &S) {
   OS << "pacret-stateWI<";
   OS << "NonAutClobRegs: " << S.NonAutClobRegs;
   OS << "Insts: ";
-  for (auto Set : S.LastInstWritingReg) {
-    OS << "(";
+  for (unsigned I = 0; I < S.LastInstWritingReg.size(); ++I) {
+    auto Set = S.LastInstWritingReg[I];
+    OS << "[" << I << "](";
     for (auto MCInstP : Set)
       OS << MCInstP << " ";
     OS << ")";
@@ -217,8 +203,9 @@ void PacStateWIPrinter::print(raw_ostream &OS, const StateWithInsts &S) const {
   OS << "NonAutClobRegs: ";
   RegStatePrinter.print(OS, S.NonAutClobRegs);
   OS << "Insts: ";
-  for (auto Set : S.LastInstWritingReg) {
-    OS << "(";
+  for (unsigned I = 0; I < S.LastInstWritingReg.size(); ++I) {
+    auto Set = S.LastInstWritingReg[I];
+    OS << "[" << I << "](";
     for (auto MCInstP : Set)
       OS << MCInstP << " ";
     OS << ")";
@@ -294,6 +281,13 @@ protected:
   }
 
   StringRef getAnnotationName() const { return StringRef("PacRetAnalysis"); }
+
+public:
+  std::vector<MCInstReference>
+  getLastClobberingInsts(const MCInst Ret, BinaryFunction &BF,
+                         const BitVector &DirtyRawRegs) const {
+    return {};
+  }
 };
 
 class PacRetWIAnalysis
@@ -330,7 +324,7 @@ protected:
         return true;
     return false;
   }
-  uint16_t Reg2StateIdx(MCPhysReg Reg) {
+  uint16_t Reg2StateIdx(MCPhysReg Reg) const {
     assert(Reg < _Reg2StateIdx.size());
     return _Reg2StateIdx[Reg];
   }
@@ -401,6 +395,31 @@ protected:
   }
 
   StringRef getAnnotationName() const { return StringRef("PacRetWIAnalysis"); }
+
+public:
+  std::vector<MCInstReference>
+  getLastClobberingInsts(const MCInst Ret, BinaryFunction &BF,
+                         const BitVector &DirtyRawRegs) const {
+    if (auto _S = getStateAt(Ret)) {
+      StateWithInsts S = *_S;
+      // Due to aliasing registers, multiple registers may have
+      // been tracked.
+      std::set<const MCInst *> LastWritingInsts;
+      for (MCPhysReg TrackedReg : DirtyRawRegs.set_bits()) {
+        for (const MCInst *LastInstWriting :
+             S.LastInstWritingReg[Reg2StateIdx(TrackedReg)])
+          LastWritingInsts.insert(LastInstWriting);
+      }
+      std::vector<MCInstReference> Result;
+      for (const MCInst *LastInstWriting : LastWritingInsts) {
+        MCInstInBBReference Ref = MCInstInBBReference::get(LastInstWriting, BF);
+        assert(Ref.BB != nullptr && "Expected Inst to be found");
+        Result.push_back(MCInstReference(Ref));
+      }
+      return Result;
+    }
+    llvm_unreachable("Expected StateWithInsts to be present");
+  }
 };
 
 void reset_track_state(const BinaryContext &BC, unsigned &RetReg,
@@ -449,7 +468,7 @@ void processOneInst(const MCInstReference Inst, const BinaryContext &BC,
       // Non-protected ret found
       assert(RetInst.has_value());
       BC.MIB->addAnnotation(*RetInst, gadgetAnnotationIndex,
-                            NonPacProtectedRetGadget(*RetInst, Inst));
+                            NonPacProtectedRetGadget(*RetInst, {Inst}));
     }
     reset_track_state(BC, RetReg, RetInst);
     return;
@@ -520,20 +539,17 @@ SmallSet<MCPhysReg, 1> NonPacProtectedRetAnalysis::ComputeDFState(
           // the dataflow analysis may have added.
           if (BC.MIB->hasAnnotation(Inst, gadgetAnnotationIndex))
             BC.MIB->removeAnnotation(Inst, gadgetAnnotationIndex);
-          BC.MIB->addAnnotation(Inst, gadgetAnnotationIndex,
-                                NonPacProtectedRetGadget(
-                                    MCInstInBBReference(&BB, I), {} /*, Inst*/),
-                                AllocatorId);
-#if 0
+          BC.MIB->addAnnotation(
+              Inst, gadgetAnnotationIndex,
+              NonPacProtectedRetGadget(
+                  MCInstInBBReference(&BB, I),
+                  PRA.getLastClobberingInsts(Inst, BF, DirtyRawRegs)),
+              AllocatorId);
           LLVM_DEBUG({
-            dbgs() << "Added gadget info annotation: ";
-#if 1
-            BC.InstPrinter->printInst(&const_cast<MCInst &>(Inst), 0, "",
-                                      *BC.STI, dbgs());
-#endif
+            dbgs() << "  Added gadget info annotation: ";
+            BC.printInstruction(dbgs(), Inst, 0, &BF);
             dbgs() << "\n";
           });
-#endif
           for (MCPhysReg RetRegWithGadget : DirtyRawRegs.set_bits())
             RetRegsWithGadgets.insert(RetRegWithGadget);
         }
@@ -558,7 +574,8 @@ void NonPacProtectedRetAnalysis::runOnFunction(
 
   if (BF.hasCFG()) {
     PacRetAnalysis PRA(BF, AllocatorId);
-    SmallSet<MCPhysReg, 1> RetRegsWithGadgets = ComputeDFState(PRA, BF, AllocatorId);
+    SmallSet<MCPhysReg, 1> RetRegsWithGadgets =
+        ComputeDFState(PRA, BF, AllocatorId);
     if (!RetRegsWithGadgets.empty()) {
       // Redo the analysis, but now also track which instructions last wrote
       // to any of the registers in RetRegsWithGadgets, so that better
@@ -597,6 +614,25 @@ void NonPacProtectedRetAnalysis::runOnFunction(
   }
 }
 
+void reportFoundGadgetInSingleBBSingleOverwInst(const BinaryContext &BC,
+                                                const MCInstReference OverwInst,
+                                                const MCInstReference RetInst) {
+  BinaryBasicBlock *BB = RetInst.getBasicBlock();
+  BinaryFunction *BF = BB->getFunction();
+  assert(OverwInst.CurrentLocation == MCInstReference::_BinaryBasicBlock);
+  assert(RetInst.CurrentLocation == MCInstReference::_BinaryBasicBlock);
+  MCInstInBBReference OverwInstBB = OverwInst.u.BBRef;
+  if (BB == OverwInstBB.BB) {
+    // overwriting inst and ret instruction are in the same basic block.
+    assert(OverwInstBB.BBIndex < RetInst.u.BBRef.BBIndex);
+    outs() << "  This happens in the following single sequence:\n";
+    for (unsigned I = OverwInstBB.BBIndex; I <= RetInst.u.BBRef.BBIndex; ++I) {
+      uint64_t Address = BB->getOffset() + BF->getAddress() + 4 * I;
+      BC.printInstruction(outs(), BB->getInstructionAtIndex(I), Address, BF);
+    }
+  }
+}
+
 void reportFoundGadget(const BinaryContext &BC, const MCInst &Inst,
                        unsigned int gadgetAnnotationIndex) {
   auto NPPRG = BC.MIB->getAnnotationAs<NonPacProtectedRetGadget>(
@@ -610,21 +646,40 @@ void reportFoundGadget(const BinaryContext &BC, const MCInst &Inst,
   if (BB)
     outs() << ", basic block " << BB->getName();
   outs() << ", at address " << llvm::format("%x", RetInst.getAddress()) << "\n";
-  if (BB)
-    BB->dump();
-  else if (NPPRG.OverwritingRetRegInst) {
-    assert(NPPRG.OverwritingRetRegInst->CurrentLocation ==
-           MCInstReference::_BinaryFunction);
-    assert(RetInst.CurrentLocation == MCInstReference::_BinaryFunction);
-    MCInstInBFReference InstRef = NPPRG.OverwritingRetRegInst->u.BFRef;
-    bool printInst = false;
-    for (auto I = BF->inst_begin(), E = BF->inst_end(); I != E; ++I) {
-      if ((*I).first == InstRef.getOffset())
-        printInst = true;
-      if (printInst)
-        BC.printInstruction(outs(), (*I).second, (*I).first, BF);
-      if ((*I).first == RetInst.u.BFRef.getOffset())
-        break;
+  outs() << "  The return instruction is ";
+  BC.printInstruction(outs(), RetInst, RetInst.getAddress(), BF);
+  outs() << "  The " << NPPRG.OverwritingRetRegInst.size()
+         << " instructions that write to the return register after any "
+            "authentication are:\n";
+  for (unsigned I = 0; I < NPPRG.OverwritingRetRegInst.size(); ++I) {
+    MCInstReference InstRef = NPPRG.OverwritingRetRegInst[I];
+    outs() << "  " << (I + 1) << ". ";
+    BC.printInstruction(outs(), InstRef, InstRef.getAddress(), BF);
+  };
+  LLVM_DEBUG({
+    dbgs() << "  .. OverWritingRetRegInst:\n";
+    for (MCInstReference Ref : NPPRG.OverwritingRetRegInst) {
+      dbgs() << "    " << Ref << "\n";
+    }
+  });
+  if (NPPRG.OverwritingRetRegInst.size() == 1) {
+    const MCInstReference OverwInst = NPPRG.OverwritingRetRegInst[0];
+    if (OverwInst.CurrentLocation == MCInstReference::_BinaryFunction) {
+      assert(RetInst.CurrentLocation == MCInstReference::_BinaryFunction);
+      MCInstInBFReference InstRef = OverwInst.u.BFRef;
+      bool printInst = false;
+      outs() << "  This happens in the following single sequence:\n";
+      for (auto I = BF->inst_begin(), E = BF->inst_end(); I != E; ++I) {
+        if ((*I).first == InstRef.getOffset())
+          printInst = true;
+        if (printInst)
+          BC.printInstruction(outs(), (*I).second,
+                              BF->getAddress() + (*I).first, BF);
+        if ((*I).first == RetInst.u.BFRef.getOffset())
+          break;
+      }
+    } else {
+      reportFoundGadgetInSingleBBSingleOverwInst(BC, OverwInst, RetInst);
     }
   }
 }
@@ -647,13 +702,6 @@ void NonPacProtectedRetAnalysis::runOnFunctions(BinaryContext &BC) {
 
   for (BinaryFunction *BF : BC.getAllBinaryFunctions())
     if (BF->hasCFG()) {
-#if 0
-      for (BinaryBasicBlock &BB : *BF) {
-        LLVM_DEBUG({
-          dbgs() << " After PacRetAnalysis:\n";
-          BB.dump();
-        });
-#else
       for (BinaryBasicBlock &BB : *BF) {
         for (int64_t I = BB.size() - 1; I >= 0; --I) {
           MCInst &Inst = BB.getInstructionAtIndex(I);
@@ -661,7 +709,6 @@ void NonPacProtectedRetAnalysis::runOnFunctions(BinaryContext &BC) {
             reportFoundGadget(BC, Inst, gadgetAnnotationIndex);
           }
         }
-#endif
       }
     } else {
       for (auto I = BF->inst_begin(), E = BF->inst_end(); I != E; ++I) {

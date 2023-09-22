@@ -15,8 +15,11 @@ f_crossbb1:
 1:
         ret
         .size f_crossbb1, .-f_crossbb1
-// CHECK: GS-PACRET: non-protected ret found in function f_crossbb1, basic block .L{{[^,]+}}, at address
-// CHECK:     00000014:   ret     x30 # pacret-gadget: pac-ret-gadget<Ret:MCInstBBRef<BB:
+// CHECK-LABEL:     GS-PACRET: non-protected ret found in function f_crossbb1, basic block .L{{[^,]+}}, at address
+// CHECK-NEXT:  The return instruction is     {{[0-9a-f]+}}:       ret     x30
+// CHECK-NEXT:  The 2 instructions that write to the return register after any authentication are:
+// CHECK-NEXT:  1.     {{[0-9a-f]+}}:      ldp     x29, x30, [sp], #0x10
+// CHECK-NEXT:  2.     {{[0-9a-f]+}}:      hint    #29
 
 // A test that checks that the dataflow state tracking across when merging BBs
 // seems to work:
@@ -34,8 +37,10 @@ f_mergebb1:
 1:
         ret
         .size f_mergebb1, .-f_mergebb1
-// CHECK: GS-PACRET: non-protected ret found in function f_mergebb1, basic block .L{{[^,]+}}, at address
-// CHECK:     0000001c:   ret     x30 # pacret-gadget: pac-ret-gadget<Ret:MCInstBBRef<BB:
+// CHECK-LABEL: GS-PACRET: non-protected ret found in function f_mergebb1, basic block .L{{[^,]+}}, at address
+// CHECK-NEXT:    The return instruction is     {{[0-9a-f]+}}:       ret     x30
+// CHECK-NEXT:    The 1 instructions that write to the return register after any authentication are:
+// CHECK-NEXT:    1.     {{[0-9a-f]+}}:      ldp     x29, x30, [sp], #0x10
 
 // TODO: also verify that false negatives exist in across-BB gadgets in functions
 // for which bolt cannot reconstruct the call graph.

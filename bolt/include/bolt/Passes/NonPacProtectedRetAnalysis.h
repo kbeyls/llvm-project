@@ -33,6 +33,13 @@ struct MCInstInBBReference {
   MCInstInBBReference(BinaryBasicBlock *_BB, int64_t _BBIndex)
       : BB(_BB), BBIndex(_BBIndex) {}
   MCInstInBBReference() : BB(nullptr), BBIndex(0) {}
+  static MCInstInBBReference get(const MCInst *Inst, BinaryFunction &BF) {
+    for (BinaryBasicBlock& BB : BF)
+      for (size_t I = 0; I < BB.size(); ++I)
+        if (Inst == &(BB.getInstructionAtIndex(I)))
+          return MCInstInBBReference(&BB, I);
+    return {};
+  }
   bool operator==(const MCInstInBBReference &RHS) const {
     return BB == RHS.BB && BBIndex == RHS.BBIndex;
   }
@@ -169,7 +176,7 @@ raw_ostream &operator<<(raw_ostream &OS, const MCInstReference &);
 
 struct NonPacProtectedRetGadget {
   MCInstReference RetInst;
-  std::optional<MCInstReference> OverwritingRetRegInst;
+  std::vector<MCInstReference> OverwritingRetRegInst;
   /// address of ret instruction? -> not needed.
   /// register of ret instruction?
   bool operator==(const NonPacProtectedRetGadget &RHS) const {
@@ -187,7 +194,7 @@ struct NonPacProtectedRetGadget {
 #endif
   NonPacProtectedRetGadget(
       MCInstReference _RetInst,
-      std::optional<MCInstReference> _OverwritingRetRegInst)
+      const std::vector<MCInstReference>& _OverwritingRetRegInst)
       : RetInst(_RetInst), OverwritingRetRegInst(_OverwritingRetRegInst) {}
 };
 
