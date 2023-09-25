@@ -12,6 +12,7 @@
 
 #include "bolt/Utils/CommandLineOpts.h"
 #include "llvm/Support/VCSRevision.h"
+#include <fstream>
 
 using namespace llvm;
 
@@ -188,10 +189,30 @@ cl::opt<bool> UpdateDebugSections(
     cl::desc("update DWARF debug sections of the executable"),
     cl::cat(BoltCategory));
 
+cl::list<std::string> AssumeNoReturnFunctions(
+    "noreturnfuncs", cl::CommaSeparated,
+    cl::desc("List which function names to assume are no-return"),
+    cl::value_desc("func1,func2,func3,..."), cl::Hidden, cl::cat(BoltCategory));
+
+cl::opt<std::string> AssumeNoReturnFunctionsFile(
+    "noreturnfuncs-file",
+    cl::desc("file with list of functions to assume are no-return"), cl::Hidden,
+    cl::cat(BoltCategory));
+
 cl::opt<unsigned>
     Verbosity("v", cl::desc("set verbosity level for diagnostic output"),
               cl::init(0), cl::ZeroOrMore, cl::cat(BoltCategory),
               cl::sub(cl::SubCommand::getAll()));
+
+void populateFunctionNames(const cl::opt<std::string> &FunctionNamesFile,
+                           cl::list<std::string> &FunctionNames) {
+  if (FunctionNamesFile.empty())
+    return;
+  std::ifstream FuncsFile(FunctionNamesFile, std::ios::in);
+  std::string FuncName;
+  while (std::getline(FuncsFile, FuncName))
+    FunctionNames.push_back(FuncName);
+}
 
 bool processAllFunctions() {
   if (opts::AggregateOnly)
