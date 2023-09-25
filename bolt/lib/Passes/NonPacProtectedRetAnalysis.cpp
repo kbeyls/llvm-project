@@ -678,7 +678,7 @@ void reportFoundGadget(const BinaryContext &BC, const MCInst &Inst,
   BinaryFunction *BF = RetInst.getFunction();
   BinaryBasicBlock *BB = RetInst.getBasicBlock();
 
-  outs() << "GS-PACRET: "
+  outs() << "\nGS-PACRET: "
          << "non-protected ret found in function " << BF->getPrintName();
   if (BB)
     outs() << ", basic block " << BB->getName();
