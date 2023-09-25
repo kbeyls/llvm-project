@@ -12,12 +12,17 @@ f1:
         bl      g
         add     x0, x0, #3
         ldp     x29, x30, [sp], #16
-        // paciasp
+        // autiasp
 // CHECK-LABEL: GS-PACRET: non-protected ret found in function f1, basic block .LBB{{[0-9]+}}, at address
 // CHECK-NEXT:    The return instruction is     {{[0-9a-f]+}}:       ret
 // CHECK-NEXT:    The 1 instructions that write to the return register after any authentication are:
 // CHECK-NEXT:    1. {{[0-9a-f]+}}: ldp     x29, x30, [sp], #0x10
-// CHECK-NEXT:    This happens in the following single sequence:
+// CHECK-NEXT:  This happens in the following basic block:
+// CHECK-NEXT: {{[0-9a-f]+}}:   paciasp
+// CHECK-NEXT: {{[0-9a-f]+}}:   stp     x29, x30, [sp, #-0x10]!
+// CHECK-NEXT: {{[0-9a-f]+}}:   mov     x29, sp
+// CHECK-NEXT: {{[0-9a-f]+}}:   bl      g@PLT
+// CHECK-NEXT: {{[0-9a-f]+}}:   add     x0, x0, #0x3
 // CHECK-NEXT: {{[0-9a-f]+}}:   ldp     x29, x30, [sp], #0x10
 // CHECK-NEXT: {{[0-9a-f]+}}:   ret
         ret
@@ -38,7 +43,13 @@ f_intermediate_overwrite1:
 // CHECK-NEXT:    The return instruction is     {{[0-9a-f]+}}:       ret
 // CHECK-NEXT:    The 1 instructions that write to the return register after any authentication are:
 // CHECK-NEXT:    1. {{[0-9a-f]+}}: ldp     x29, x30, [sp], #0x10
-// CHECK-NEXT:    This happens in the following single sequence:
+// CHECK-NEXT:  This happens in the following basic block:
+// CHECK-NEXT: {{[0-9a-f]+}}:   paciasp
+// CHECK-NEXT: {{[0-9a-f]+}}:   stp     x29, x30, [sp, #-0x10]!
+// CHECK-NEXT: {{[0-9a-f]+}}:   mov     x29, sp
+// CHECK-NEXT: {{[0-9a-f]+}}:   bl      g@PLT
+// CHECK-NEXT: {{[0-9a-f]+}}:   add     x0, x0, #0x3
+// CHECK-NEXT: {{[0-9a-f]+}}:   autiasp
 // CHECK-NEXT: {{[0-9a-f]+}}:   ldp     x29, x30, [sp], #0x10
 // CHECK-NEXT: {{[0-9a-f]+}}:   ret
         ret
@@ -59,7 +70,14 @@ f_intermediate_overwrite2:
 // CHECK-NEXT:    The return instruction is     {{[0-9a-f]+}}:       ret
 // CHECK-NEXT:    The 1 instructions that write to the return register after any authentication are:
 // CHECK-NEXT:    1. {{[0-9a-f]+}}: mov     x30, x0
-// CHECK-NEXT:    This happens in the following single sequence:
+// CHECK-NEXT:  This happens in the following basic block:
+// CHECK-NEXT: {{[0-9a-f]+}}:   paciasp
+// CHECK-NEXT: {{[0-9a-f]+}}:   stp     x29, x30, [sp, #-0x10]!
+// CHECK-NEXT: {{[0-9a-f]+}}:   mov     x29, sp
+// CHECK-NEXT: {{[0-9a-f]+}}:   bl      g@PLT
+// CHECK-NEXT: {{[0-9a-f]+}}:   add     x0, x0, #0x3
+// CHECK-NEXT: {{[0-9a-f]+}}:   ldp     x29, x30, [sp], #0x10
+// CHECK-NEXT: {{[0-9a-f]+}}:   autiasp
 // CHECK-NEXT: {{[0-9a-f]+}}:   mov     x30, x0
 // CHECK-NEXT: {{[0-9a-f]+}}:   ret
         ret
@@ -95,7 +113,14 @@ f_intermediate_overwrite3:
 // CHECK-NEXT:    The return instruction is     {{[0-9a-f]+}}:       ret
 // CHECK-NEXT:    The 1 instructions that write to the return register after any authentication are:
 // CHECK-NEXT:    1. {{[0-9a-f]+}}: mov     w30, w0
-// CHECK-NEXT:    This happens in the following single sequence:
+// CHECK-NEXT:  This happens in the following basic block:
+// CHECK-NEXT: {{[0-9a-f]+}}:   paciasp
+// CHECK-NEXT: {{[0-9a-f]+}}:   stp     x29, x30, [sp, #-0x10]!
+// CHECK-NEXT: {{[0-9a-f]+}}:   mov     x29, sp
+// CHECK-NEXT: {{[0-9a-f]+}}:   bl      g@PLT
+// CHECK-NEXT: {{[0-9a-f]+}}:   add     x0, x0, #0x3
+// CHECK-NEXT: {{[0-9a-f]+}}:   ldp     x29, x30, [sp], #0x10
+// CHECK-NEXT: {{[0-9a-f]+}}:   autiasp
 // CHECK-NEXT: {{[0-9a-f]+}}:   mov     w30, w0
 // CHECK-NEXT: {{[0-9a-f]+}}:   ret
         ret
@@ -116,7 +141,13 @@ f_nonx30_ret:
 // CHECK-NEXT:    The return instruction is     {{[0-9a-f]+}}:       ret     x16
 // CHECK-NEXT:    The 1 instructions that write to the return register after any authentication are:
 // CHECK-NEXT:    1. {{[0-9a-f]+}}: mov     x16, x30
-// CHECK-NEXT:    This happens in the following single sequence:
+// CHECK-NEXT:  This happens in the following basic block:
+// CHECK-NEXT: {{[0-9a-f]+}}:   paciasp
+// CHECK-NEXT: {{[0-9a-f]+}}:   stp     x29, x30, [sp, #-0x10]!
+// CHECK-NEXT: {{[0-9a-f]+}}:   mov     x29, sp
+// CHECK-NEXT: {{[0-9a-f]+}}:   bl      g@PLT
+// CHECK-NEXT: {{[0-9a-f]+}}:   add     x0, x0, #0x3
+// CHECK-NEXT: {{[0-9a-f]+}}:   ldp     x29, x30, [sp], #0x10
 // CHECK-NEXT: {{[0-9a-f]+}}:   mov     x16, x30
 // CHECK-NEXT: {{[0-9a-f]+}}:   autiasp
 // CHECK-NEXT: {{[0-9a-f]+}}:   ret     x16
@@ -196,7 +227,12 @@ f_autia1716:
 // CHECK-NEXT:    The return instruction is     {{[0-9a-f]+}}:       ret
 // CHECK-NEXT:    The 1 instructions that write to the return register after any authentication are:
 // CHECK-NEXT:    1. {{[0-9a-f]+}}: ldp     x29, x30, [sp], #0x10
-// CHECK-NEXT:    This happens in the following single sequence:
+// CHECK-NEXT:  This happens in the following basic block:
+// CHECK-NEXT: {{[0-9a-f]+}}:   paciasp
+// CHECK-NEXT: {{[0-9a-f]+}}:   stp     x29, x30, [sp, #-0x10]!
+// CHECK-NEXT: {{[0-9a-f]+}}:   mov     x29, sp
+// CHECK-NEXT: {{[0-9a-f]+}}:   bl      g@PLT
+// CHECK-NEXT: {{[0-9a-f]+}}:   add     x0, x0, #0x3
 // CHECK-NEXT: {{[0-9a-f]+}}:   ldp     x29, x30, [sp], #0x10
 // CHECK-NEXT: {{[0-9a-f]+}}:   autia1716
 // CHECK-NEXT: {{[0-9a-f]+}}:   ret
@@ -217,7 +253,12 @@ f_autib1716:
 // CHECK-NEXT:    The return instruction is     {{[0-9a-f]+}}:       ret
 // CHECK-NEXT:    The 1 instructions that write to the return register after any authentication are:
 // CHECK-NEXT:    1. {{[0-9a-f]+}}: ldp     x29, x30, [sp], #0x10
-// CHECK-NEXT:    This happens in the following single sequence:
+// CHECK-NEXT:  This happens in the following basic block:
+// CHECK-NEXT: {{[0-9a-f]+}}:   paciasp
+// CHECK-NEXT: {{[0-9a-f]+}}:   stp     x29, x30, [sp, #-0x10]!
+// CHECK-NEXT: {{[0-9a-f]+}}:   mov     x29, sp
+// CHECK-NEXT: {{[0-9a-f]+}}:   bl      g@PLT
+// CHECK-NEXT: {{[0-9a-f]+}}:   add     x0, x0, #0x3
 // CHECK-NEXT: {{[0-9a-f]+}}:   ldp     x29, x30, [sp], #0x10
 // CHECK-NEXT: {{[0-9a-f]+}}:   autib1716
 // CHECK-NEXT: {{[0-9a-f]+}}:   ret
@@ -238,7 +279,12 @@ f_autiax12:
 // CHECK-NEXT:    The return instruction is     {{[0-9a-f]+}}:       ret
 // CHECK-NEXT:    The 1 instructions that write to the return register after any authentication are:
 // CHECK-NEXT:    1. {{[0-9a-f]+}}: ldp     x29, x30, [sp], #0x10
-// CHECK-NEXT:    This happens in the following single sequence:
+// CHECK-NEXT:  This happens in the following basic block:
+// CHECK-NEXT: {{[0-9a-f]+}}:   paciasp
+// CHECK-NEXT: {{[0-9a-f]+}}:   stp     x29, x30, [sp, #-0x10]!
+// CHECK-NEXT: {{[0-9a-f]+}}:   mov     x29, sp
+// CHECK-NEXT: {{[0-9a-f]+}}:   bl      g@PLT
+// CHECK-NEXT: {{[0-9a-f]+}}:   add     x0, x0, #0x3
 // CHECK-NEXT: {{[0-9a-f]+}}:   ldp     x29, x30, [sp], #0x10
 // CHECK-NEXT: {{[0-9a-f]+}}:   autia   x12, sp
 // CHECK-NEXT: {{[0-9a-f]+}}:   ret
@@ -259,7 +305,12 @@ f_autibx12:
 // CHECK-NEXT:    The return instruction is     {{[0-9a-f]+}}:       ret
 // CHECK-NEXT:    The 1 instructions that write to the return register after any authentication are:
 // CHECK-NEXT:    1. {{[0-9a-f]+}}: ldp     x29, x30, [sp], #0x10
-// CHECK-NEXT:    This happens in the following single sequence:
+// CHECK-NEXT:  This happens in the following basic block:
+// CHECK-NEXT: {{[0-9a-f]+}}:   paciasp
+// CHECK-NEXT: {{[0-9a-f]+}}:   stp     x29, x30, [sp, #-0x10]!
+// CHECK-NEXT: {{[0-9a-f]+}}:   mov     x29, sp
+// CHECK-NEXT: {{[0-9a-f]+}}:   bl      g@PLT
+// CHECK-NEXT: {{[0-9a-f]+}}:   add     x0, x0, #0x3
 // CHECK-NEXT: {{[0-9a-f]+}}:   ldp     x29, x30, [sp], #0x10
 // CHECK-NEXT: {{[0-9a-f]+}}:   autib   x12, sp
 // CHECK-NEXT: {{[0-9a-f]+}}:   ret
@@ -309,7 +360,12 @@ f_autdax12:
 // CHECK-NEXT:    The return instruction is     {{[0-9a-f]+}}:       ret
 // CHECK-NEXT:    The 1 instructions that write to the return register after any authentication are:
 // CHECK-NEXT:    1. {{[0-9a-f]+}}: ldp     x29, x30, [sp], #0x10
-// CHECK-NEXT:    This happens in the following single sequence:
+// CHECK-NEXT:  This happens in the following basic block:
+// CHECK-NEXT: {{[0-9a-f]+}}:   paciasp
+// CHECK-NEXT: {{[0-9a-f]+}}:   stp     x29, x30, [sp, #-0x10]!
+// CHECK-NEXT: {{[0-9a-f]+}}:   mov     x29, sp
+// CHECK-NEXT: {{[0-9a-f]+}}:   bl      g@PLT
+// CHECK-NEXT: {{[0-9a-f]+}}:   add     x0, x0, #0x3
 // CHECK-NEXT: {{[0-9a-f]+}}:   ldp     x29, x30, [sp], #0x10
 // CHECK-NEXT: {{[0-9a-f]+}}:   autda   x12, sp
 // CHECK-NEXT: {{[0-9a-f]+}}:   ret
@@ -330,7 +386,12 @@ f_autdbx12:
 // CHECK-NEXT:    The return instruction is     {{[0-9a-f]+}}:       ret
 // CHECK-NEXT:    The 1 instructions that write to the return register after any authentication are:
 // CHECK-NEXT:    1. {{[0-9a-f]+}}: ldp     x29, x30, [sp], #0x10
-// CHECK-NEXT:    This happens in the following single sequence:
+// CHECK-NEXT:  This happens in the following basic block:
+// CHECK-NEXT: {{[0-9a-f]+}}:   paciasp
+// CHECK-NEXT: {{[0-9a-f]+}}:   stp     x29, x30, [sp, #-0x10]!
+// CHECK-NEXT: {{[0-9a-f]+}}:   mov     x29, sp
+// CHECK-NEXT: {{[0-9a-f]+}}:   bl      g@PLT
+// CHECK-NEXT: {{[0-9a-f]+}}:   add     x0, x0, #0x3
 // CHECK-NEXT: {{[0-9a-f]+}}:   ldp     x29, x30, [sp], #0x10
 // CHECK-NEXT: {{[0-9a-f]+}}:   autdb   x12, sp
 // CHECK-NEXT: {{[0-9a-f]+}}:   ret
@@ -380,7 +441,12 @@ f_autizax12:
 // CHECK-NEXT:    The return instruction is     {{[0-9a-f]+}}:       ret
 // CHECK-NEXT:    The 1 instructions that write to the return register after any authentication are:
 // CHECK-NEXT:    1. {{[0-9a-f]+}}: ldp     x29, x30, [sp], #0x10
-// CHECK-NEXT:    This happens in the following single sequence:
+// CHECK-NEXT:  This happens in the following basic block:
+// CHECK-NEXT: {{[0-9a-f]+}}:   paciasp
+// CHECK-NEXT: {{[0-9a-f]+}}:   stp     x29, x30, [sp, #-0x10]!
+// CHECK-NEXT: {{[0-9a-f]+}}:   mov     x29, sp
+// CHECK-NEXT: {{[0-9a-f]+}}:   bl      g@PLT
+// CHECK-NEXT: {{[0-9a-f]+}}:   add     x0, x0, #0x3
 // CHECK-NEXT: {{[0-9a-f]+}}:   ldp     x29, x30, [sp], #0x10
 // CHECK-NEXT: {{[0-9a-f]+}}:   autiza  x12
 // CHECK-NEXT: {{[0-9a-f]+}}:   ret
@@ -401,7 +467,12 @@ f_autizbx12:
 // CHECK-NEXT:    The return instruction is     {{[0-9a-f]+}}:       ret
 // CHECK-NEXT:    The 1 instructions that write to the return register after any authentication are:
 // CHECK-NEXT:    1. {{[0-9a-f]+}}: ldp     x29, x30, [sp], #0x10
-// CHECK-NEXT:    This happens in the following single sequence:
+// CHECK-NEXT:  This happens in the following basic block:
+// CHECK-NEXT: {{[0-9a-f]+}}:   paciasp
+// CHECK-NEXT: {{[0-9a-f]+}}:   stp     x29, x30, [sp, #-0x10]!
+// CHECK-NEXT: {{[0-9a-f]+}}:   mov     x29, sp
+// CHECK-NEXT: {{[0-9a-f]+}}:   bl      g@PLT
+// CHECK-NEXT: {{[0-9a-f]+}}:   add     x0, x0, #0x3
 // CHECK-NEXT: {{[0-9a-f]+}}:   ldp     x29, x30, [sp], #0x10
 // CHECK-NEXT: {{[0-9a-f]+}}:   autizb  x12
 // CHECK-NEXT: {{[0-9a-f]+}}:   ret
@@ -451,7 +522,12 @@ f_autdzax12:
 // CHECK-NEXT:    The return instruction is     {{[0-9a-f]+}}:       ret
 // CHECK-NEXT:    The 1 instructions that write to the return register after any authentication are:
 // CHECK-NEXT:    1. {{[0-9a-f]+}}: ldp     x29, x30, [sp], #0x10
-// CHECK-NEXT:    This happens in the following single sequence:
+// CHECK-NEXT:  This happens in the following basic block:
+// CHECK-NEXT: {{[0-9a-f]+}}:   paciasp
+// CHECK-NEXT: {{[0-9a-f]+}}:   stp     x29, x30, [sp, #-0x10]!
+// CHECK-NEXT: {{[0-9a-f]+}}:   mov     x29, sp
+// CHECK-NEXT: {{[0-9a-f]+}}:   bl      g@PLT
+// CHECK-NEXT: {{[0-9a-f]+}}:   add     x0, x0, #0x3
 // CHECK-NEXT: {{[0-9a-f]+}}:   ldp     x29, x30, [sp], #0x10
 // CHECK-NEXT: {{[0-9a-f]+}}:   autdza  x12
 // CHECK-NEXT: {{[0-9a-f]+}}:   ret
@@ -472,7 +548,12 @@ f_autdzbx12:
 // CHECK-NEXT:    The return instruction is     {{[0-9a-f]+}}:       ret
 // CHECK-NEXT:    The 1 instructions that write to the return register after any authentication are:
 // CHECK-NEXT:    1. {{[0-9a-f]+}}: ldp     x29, x30, [sp], #0x10
-// CHECK-NEXT:    This happens in the following single sequence:
+// CHECK-NEXT:  This happens in the following basic block:
+// CHECK-NEXT: {{[0-9a-f]+}}:   paciasp
+// CHECK-NEXT: {{[0-9a-f]+}}:   stp     x29, x30, [sp, #-0x10]!
+// CHECK-NEXT: {{[0-9a-f]+}}:   mov     x29, sp
+// CHECK-NEXT: {{[0-9a-f]+}}:   bl      g@PLT
+// CHECK-NEXT: {{[0-9a-f]+}}:   add     x0, x0, #0x3
 // CHECK-NEXT: {{[0-9a-f]+}}:   ldp     x29, x30, [sp], #0x10
 // CHECK-NEXT: {{[0-9a-f]+}}:   autdzb  x12
 // CHECK-NEXT: {{[0-9a-f]+}}:   ret
@@ -572,7 +653,12 @@ f_eret:
 // CHECK-NEXT:    The return instruction is     {{[0-9a-f]+}}:       eret
 // CHECK-NEXT:    The 1 instructions that write to the return register after any authentication are:
 // CHECK-NEXT:    1. {{[0-9a-f]+}}: ldp     x29, x30, [sp], #0x10
-// CHECK-NEXT:    This happens in the following single sequence:
+// CHECK-NEXT:  This happens in the following basic block:
+// CHECK-NEXT: {{[0-9a-f]+}}:   paciasp
+// CHECK-NEXT: {{[0-9a-f]+}}:   stp     x29, x30, [sp, #-0x10]!
+// CHECK-NEXT: {{[0-9a-f]+}}:   mov     x29, sp
+// CHECK-NEXT: {{[0-9a-f]+}}:   bl      g@PLT
+// CHECK-NEXT: {{[0-9a-f]+}}:   add     x0, x0, #0x3
 // CHECK-NEXT: {{[0-9a-f]+}}:   ldp     x29, x30, [sp], #0x10
 // CHECK-NEXT: {{[0-9a-f]+}}:   eret
         eret
@@ -585,8 +671,8 @@ f_movx30reg:
 // CHECK-NEXT:    The return instruction is     {{[0-9a-f]+}}:       ret
 // CHECK-NEXT:    The 1 instructions that write to the return register after any authentication are:
 // CHECK-NEXT:    1. {{[0-9a-f]+}}: mov x30, x22
-// CHECK-NEXT:    This happens in the following single sequence:
-// CHECK-NEXT: {{[0-9a-f]+}}:   mov x30, x22
+// CHECK-NEXT:  This happens in the following basic block:
+// CHECK-NEXT: {{[0-9a-f]+}}:   mov     x30, x22
 // CHECK-NEXT: {{[0-9a-f]+}}:   ret
         mov     x30, x22
         ret

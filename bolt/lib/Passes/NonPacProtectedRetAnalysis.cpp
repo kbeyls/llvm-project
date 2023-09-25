@@ -614,22 +614,30 @@ void NonPacProtectedRetAnalysis::runOnFunction(
   }
 }
 
+void printBB(const BinaryContext &BC, const BinaryBasicBlock *BB,
+             size_t startIndex = 0, size_t endIndex = -1) {
+  if (endIndex == (size_t)-1)
+    endIndex = BB->size()-1;
+  const BinaryFunction *BF = BB->getFunction();
+  for (unsigned I = startIndex; I <= endIndex; ++I) {
+    uint64_t Address = BB->getOffset() + BF->getAddress() + 4 * I;
+    BC.printInstruction(outs(), BB->getInstructionAtIndex(I), Address, BF);
+  }
+}
+
 void reportFoundGadgetInSingleBBSingleOverwInst(const BinaryContext &BC,
                                                 const MCInstReference OverwInst,
                                                 const MCInstReference RetInst) {
   BinaryBasicBlock *BB = RetInst.getBasicBlock();
-  BinaryFunction *BF = BB->getFunction();
   assert(OverwInst.CurrentLocation == MCInstReference::_BinaryBasicBlock);
   assert(RetInst.CurrentLocation == MCInstReference::_BinaryBasicBlock);
   MCInstInBBReference OverwInstBB = OverwInst.u.BBRef;
   if (BB == OverwInstBB.BB) {
     // overwriting inst and ret instruction are in the same basic block.
     assert(OverwInstBB.BBIndex < RetInst.u.BBRef.BBIndex);
-    outs() << "  This happens in the following single sequence:\n";
-    for (unsigned I = OverwInstBB.BBIndex; I <= RetInst.u.BBRef.BBIndex; ++I) {
-      uint64_t Address = BB->getOffset() + BF->getAddress() + 4 * I;
-      BC.printInstruction(outs(), BB->getInstructionAtIndex(I), Address, BF);
-    }
+    outs() << "  This happens in the following basic block:\n";
+    printBB(BC, BB);
+    //printBB(BC, BB, OverwInstBB.BBIndex, RetInst.u.BBRef.BBIndex);
   }
 }
 
