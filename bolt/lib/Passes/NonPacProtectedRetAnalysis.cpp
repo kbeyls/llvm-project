@@ -621,7 +621,10 @@ void printBB(const BinaryContext &BC, const BinaryBasicBlock *BB,
   const BinaryFunction *BF = BB->getFunction();
   for (unsigned I = startIndex; I <= endIndex; ++I) {
     uint64_t Address = BB->getOffset() + BF->getAddress() + 4 * I;
-    BC.printInstruction(outs(), BB->getInstructionAtIndex(I), Address, BF);
+    const MCInst &Inst = BB->getInstructionAtIndex(I);
+    if (BC.MIB->isCFI(Inst))
+      continue;
+    BC.printInstruction(outs(), Inst, Address, BF);
   }
 }
 
@@ -658,7 +661,10 @@ void reportFoundGadgetInBFSingleOverwInst(const BinaryContext &BC,
   }
   outs() << "  This happens in the following single sequence:\n";
   for (auto I = LastBranch, E = BF->inst_end(); I != E; ++I) {
-    BC.printInstruction(outs(), (*I).second, BF->getAddress() + (*I).first, BF);
+    const MCInst &Inst = (*I).second;
+    if (BC.MIB->isCFI(Inst))
+      continue;
+    BC.printInstruction(outs(), Inst, BF->getAddress() + (*I).first, BF);
     if ((*I).first == RetInstRef.getOffset())
       break;
   }
