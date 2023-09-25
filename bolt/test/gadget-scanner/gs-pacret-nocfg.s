@@ -13,6 +13,7 @@ f_nocfg:
 // CHECK-NEXT:    The 1 instructions that write to the return register after any authentication are:
 // CHECK-NEXT:    1. {{[0-9a-f]+}}: mov x30, x22
 // CHECK-NEXT:    This happens in the following single sequence:
+// CHECK-NEXT:    {{[0-9a-f]+}}:   br      x0
 // CHECK-NEXT:    {{[0-9a-f]+}}:   mov     x30, x22
 // CHECK-NEXT:    {{[0-9a-f]+}}:   ret # Offset: 12 # pacret-gadget: pac-ret-gadget<Ret:MCInstBFRef<BF:f_nocfg:12>, Overwriting:[MCInstBFRef<BF:f_nocfg:8> ]>
 
@@ -32,8 +33,9 @@ f_mrets:
 // CHECK-NEXT:    The 1 instructions that write to the return register after any authentication are:
 // CHECK-NEXT:    1. {{[0-9a-f]+}}: mov x30, x21
 // CHECK-NEXT:    This happens in the following single sequence:
-// CHECK-NEXT:     {{[0-9a-f]+}}:   mov     x30, x21
-// CHECK-NEXT:     {{[0-9a-f]+}}:   ret # Offset: 12 # pacret-gadget: pac-ret-gadget<Ret:MCInstBFRef<BF:f_mrets:12>, Overwriting:[MCInstBFRef<BF:f_mrets:8> ]>
+// CHECK-NEXT:    {{[0-9a-f]+}}:   br      x0
+// CHECK-NEXT:    {{[0-9a-f]+}}:   mov     x30, x21
+// CHECK-NEXT:    {{[0-9a-f]+}}:   ret # Offset: 12 # pacret-gadget: pac-ret-gadget<Ret:MCInstBFRef<BF:f_mrets:12>, Overwriting:[MCInstBFRef<BF:f_mrets:8> ]>
 
 .l2:
         mov     x30, x21
@@ -64,6 +66,7 @@ f_branches:
 // CHECK-NEXT:    The 1 instructions that write to the return register after any authentication are:
 // CHECK-NEXT:    1. {{[0-9a-f]+}}: mov x30, x1
 // CHECK-NEXT:    This happens in the following single sequence:
+// CHECK-NEXT:    {{[0-9a-f]+}}:   ret
 // CHECK-NEXT:    {{[0-9a-f]+}}:   mov     x30, x1
 // CHECK-NEXT:    {{[0-9a-f]+}}:   cbz     x0, .Ltmp4 # Offset: 24
 // CHECK-NEXT:    {{[0-9a-f]+}}:   ret # Offset: 28 # pacret-gadget: pac-ret-gadget<Ret:MCInstBFRef<BF:f_branches:28>, Overwriting:[MCInstBFRef<BF:f_branches:20> ]>

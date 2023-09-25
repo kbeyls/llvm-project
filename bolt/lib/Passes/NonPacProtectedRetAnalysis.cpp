@@ -617,7 +617,7 @@ void NonPacProtectedRetAnalysis::runOnFunction(
 void printBB(const BinaryContext &BC, const BinaryBasicBlock *BB,
              size_t startIndex = 0, size_t endIndex = -1) {
   if (endIndex == (size_t)-1)
-    endIndex = BB->size()-1;
+    endIndex = BB->size() - 1;
   const BinaryFunction *BF = BB->getFunction();
   for (unsigned I = startIndex; I <= endIndex; ++I) {
     uint64_t Address = BB->getOffset() + BF->getAddress() + 4 * I;
@@ -637,7 +637,30 @@ void reportFoundGadgetInSingleBBSingleOverwInst(const BinaryContext &BC,
     assert(OverwInstBB.BBIndex < RetInst.u.BBRef.BBIndex);
     outs() << "  This happens in the following basic block:\n";
     printBB(BC, BB);
-    //printBB(BC, BB, OverwInstBB.BBIndex, RetInst.u.BBRef.BBIndex);
+    // printBB(BC, BB, OverwInstBB.BBIndex, RetInst.u.BBRef.BBIndex);
+  }
+}
+
+void reportFoundGadgetInBFSingleOverwInst(const BinaryContext &BC,
+                                          const MCInstReference OverwInst,
+                                          const MCInstReference RetInst) {
+  MCInstInBFReference OverwInstRef = OverwInst.u.BFRef;
+  MCInstInBFReference RetInstRef = RetInst.u.BFRef;
+  BinaryFunction *BF = RetInstRef.BF;
+  // Find the largest sequence without a branch ending in OverwInst..RetInst
+  BinaryFunction::Instr_iterator LastBranch = BF->inst_begin();
+  for (auto I = BF->inst_begin(), E = BF->inst_end(); I != E; ++I) {
+    const MCInst &Inst = (*I).second;
+    if (BC.MIB->isBranch(Inst) || BC.MIB->isReturn(Inst))
+      LastBranch = I;
+    if ((*I).first == OverwInstRef.getOffset())
+      break;
+  }
+  outs() << "  This happens in the following single sequence:\n";
+  for (auto I = LastBranch, E = BF->inst_end(); I != E; ++I) {
+    BC.printInstruction(outs(), (*I).second, BF->getAddress() + (*I).first, BF);
+    if ((*I).first == RetInstRef.getOffset())
+      break;
   }
 }
 
@@ -674,18 +697,7 @@ void reportFoundGadget(const BinaryContext &BC, const MCInst &Inst,
     const MCInstReference OverwInst = NPPRG.OverwritingRetRegInst[0];
     if (OverwInst.CurrentLocation == MCInstReference::_BinaryFunction) {
       assert(RetInst.CurrentLocation == MCInstReference::_BinaryFunction);
-      MCInstInBFReference InstRef = OverwInst.u.BFRef;
-      bool printInst = false;
-      outs() << "  This happens in the following single sequence:\n";
-      for (auto I = BF->inst_begin(), E = BF->inst_end(); I != E; ++I) {
-        if ((*I).first == InstRef.getOffset())
-          printInst = true;
-        if (printInst)
-          BC.printInstruction(outs(), (*I).second,
-                              BF->getAddress() + (*I).first, BF);
-        if ((*I).first == RetInst.u.BFRef.getOffset())
-          break;
-      }
+      reportFoundGadgetInBFSingleOverwInst(BC, OverwInst, RetInst);
     } else {
       reportFoundGadgetInSingleBBSingleOverwInst(BC, OverwInst, RetInst);
     }
