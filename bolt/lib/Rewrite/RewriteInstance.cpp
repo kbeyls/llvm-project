@@ -3294,7 +3294,15 @@ void RewriteInstance::runGadgetScanners() {
   BinaryFunctionPassManager Manager(*BC);
   // FIXME: add a pass that warns about which functions do not have CFG,
   // and therefore, analysis is most likely to be less accurate.
-  Manager.registerPass(std::make_unique<NonPacProtectedRetAnalysis>());
+  using GSK = opts::GadgetScannerKind;
+  // if no command line option was given, act as if "all" was specified.
+  if (opts::GadgetScannersToRun.size() == 0)
+    opts::GadgetScannersToRun.addValue(GSK::GS_ALL);
+  for (GSK ScannerToRun : opts::GadgetScannersToRun) {
+    if (ScannerToRun == GSK::GS_PACRET || ScannerToRun == GSK::GS_ALL)
+      Manager.registerPass(std::make_unique<NonPacProtectedRetAnalysis>());
+  }
+
   Manager.runPasses();
 }
 

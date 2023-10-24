@@ -30,6 +30,12 @@ HELP-NEXT:  USAGE: llvm-bolt-gadget-scanner [options] <executable>
 HELP-EMPTY:
 HELP-NEXT:  OPTIONS:
 HELP-EMPTY:
+HELP-NEXT:  GadgetScanner options:
+HELP-EMPTY:
+HELP-NEXT:   --scanners=<value> - which gadget scanners to run, default is all
+HELP-NEXT:   =pacret - pac-ret
+HELP-NEXT:   =all - all
+HELP-EMPTY:
 HELP-NEXT:  Generic Options:
 
 
