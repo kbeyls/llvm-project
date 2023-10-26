@@ -42,7 +42,21 @@ for the security properties that each implemented mitigation should provide.
 
 ## Security properties for specific mitigations
 
-TODO
+`llvm-bolt-gadget-scanner` implements a number of binary analyses. Each analysis
+focusses on a specific binary property that should be guaranteed by a specific
+mitigation. The help text for the tool explains how to use it:
+
+```text
+USAGE: llvm-bolt-gadget-scanner [options] <executable>
+
+OPTIONS:
+
+GadgetScanner options:
+
+  --scanners=<value> - which gadget scanners to run, default is all
+    =pacret          -   pac-ret
+    =all             -   all
+```
 
 ### pac-ret
 
