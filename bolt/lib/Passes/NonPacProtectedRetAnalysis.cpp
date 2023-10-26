@@ -688,6 +688,12 @@ void reportFoundGadget(const BinaryContext &BC, const MCInst &Inst,
   outs() << "  The " << NPPRG.OverwritingRetRegInst.size()
          << " instructions that write to the return register after any "
             "authentication are:\n";
+  // Sort by address to ensure output is deterministic.
+  std::sort(std::begin(NPPRG.OverwritingRetRegInst),
+            std::end(NPPRG.OverwritingRetRegInst),
+            [](const MCInstReference &a, const MCInstReference &b) {
+              return a.getAddress() < b.getAddress();
+            });
   for (unsigned I = 0; I < NPPRG.OverwritingRetRegInst.size(); ++I) {
     MCInstReference InstRef = NPPRG.OverwritingRetRegInst[I];
     outs() << "  " << (I + 1) << ". ";
