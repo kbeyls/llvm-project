@@ -40,6 +40,7 @@ add_llvm_library(LLVMBOLTPasses
   SplitFunctions.cpp
   StackAllocationAnalysis.cpp
   StackAvailableExpressions.cpp
+  StackClashAnalysis.cpp
   StackPointerTracking.cpp
   StackReachingUses.cpp
   StokeInfo.cpp

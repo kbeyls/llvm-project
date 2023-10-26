@@ -27,16 +27,6 @@ static cl::opt<std::string> InputFilename(cl::Positional,
                                           cl::cat(GadgetScannerCategory),
                                           cl::sub(cl::SubCommand::getAll()));
 
-
-cl::list<GadgetScannerKind> GadgetScannersToRun(
-    "scanners",
-    cl::desc(
-        "which gadget scanners to run, default is all"),
-    //cl::init(GS_ALL),
-    cl::values(clEnumValN(GS_PACRET, "pacret", "pac-ret"),
-               clEnumValN(GS_ALL, "all", "all")),
-    cl::ZeroOrMore, cl::CommaSeparated, cl::cat(GadgetScannerCategory));
-
 } // namespace opts
 
 static StringRef ToolName="gadget-scanner";

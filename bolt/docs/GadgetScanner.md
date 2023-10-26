@@ -62,6 +62,26 @@ GadgetScanner options:
 
 TODO
 
+### stack clash
+
+* Properties
+  * Each basic block can only change SP by a constant amount? (for variable
+    amounts, the compiler needs to produce max page-sized updates and do an
+    access then).
+  * Can compute how far from top-of-stack at each end of basic block there is
+    guaranteed to be a memory access?
+  * Confluence operator: max of distance from top-of-stack that is
+    closest-to-top-of-stack accessed?
+  * Hard part may be in stack updates done by instructions that add/sub
+    register, rather than immediate? Do compilers with stack clash even emit
+    such instructions?
+
+* Alternative, see https://blog.llvm.org/posts/2021-01-05-stack-clash-protection/:
+  > This tool instruments all stack allocation and memory access of a running
+  > binary, logs them and checks that no stack allocation is greater than
+  > PAGE_SIZE and that we get an actual probing between two allocations.
+
+
 #### Informal intent of the mitigation
 
 #### Formal security properties

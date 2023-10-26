@@ -20,6 +20,7 @@
 #include "bolt/Passes/CacheMetrics.h"
 #include "bolt/Passes/NonPacProtectedRetAnalysis.h"
 #include "bolt/Passes/ReorderFunctions.h"
+#include "bolt/Passes/StackClashAnalysis.h"
 #include "bolt/Profile/BoltAddressTranslation.h"
 #include "bolt/Profile/DataAggregator.h"
 #include "bolt/Profile/DataReader.h"
@@ -3301,6 +3302,8 @@ void RewriteInstance::runGadgetScanners() {
   for (GSK ScannerToRun : opts::GadgetScannersToRun) {
     if (ScannerToRun == GSK::GS_PACRET || ScannerToRun == GSK::GS_ALL)
       Manager.registerPass(std::make_unique<NonPacProtectedRetAnalysis>());
+    if (ScannerToRun == GSK::GS_STACKCLASH || ScannerToRun == GSK::GS_ALL)
+      Manager.registerPass(std::make_unique<StackClashAnalysis>());
   }
 
   Manager.runPasses();

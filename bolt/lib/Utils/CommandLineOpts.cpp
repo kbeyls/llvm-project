@@ -224,4 +224,12 @@ bool processAllFunctions() {
   return false;
 }
 
+cl::list<GadgetScannerKind> GadgetScannersToRun(
+    "scanners", cl::desc("which gadget scanners to run, default is all"),
+    // cl::init(GS_ALL),
+    cl::values(clEnumValN(GS_PACRET, "pacret", "pac-ret"),
+               clEnumValN(GS_PACRET, "stack-clash", "stack-clash"),
+               clEnumValN(GS_ALL, "all", "all")),
+    cl::ZeroOrMore, cl::CommaSeparated, cl::cat(GadgetScannerCategory));
+
 } // namespace opts
