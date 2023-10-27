@@ -542,7 +542,7 @@ public:
     return CalleeSymbol->getName();
   }
 
-  virtual bool isNoReturnCall(const MCInst& Inst) const {
+  virtual bool isNoReturnCall(const MCInst &Inst) const {
     if (!isCall(Inst))
       return false;
     auto calleeName = getCalleeName(Inst);
@@ -1016,6 +1016,11 @@ public:
     return false;
   }
 
+  virtual bool isStackAccess(const MCInst &Inst, int64_t &StackOffset) const {
+    llvm_unreachable("not implemented");
+    return false;
+  }
+
   /// Convert a stack accessing load/store instruction in \p Inst to a PUSH
   /// or POP saving/restoring the source/dest reg in \p Inst. The original
   /// stack offset in \p Inst is ignored.
@@ -1026,6 +1031,15 @@ public:
   /// Identify stack adjustment instructions -- those that change the stack
   /// pointer by adding or subtracting an immediate.
   virtual bool isStackAdjustment(const MCInst &Inst) const {
+    llvm_unreachable("not implemented");
+    return false;
+  }
+
+  /// Identify by which constant value \p Inst changes the value of register
+  /// \p Reg.
+  /// Returns true if such a change was identified, false otherwise.
+  virtual bool getOffsetChange(int64_t &OffsetChange, const MCInst &Inst,
+                               MCPhysReg Reg) const {
     llvm_unreachable("not implemented");
     return false;
   }

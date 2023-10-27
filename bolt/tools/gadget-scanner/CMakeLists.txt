@@ -15,6 +15,7 @@ target_link_libraries(llvm-bolt-gadget-scanner
   #LLVMBOLTProfile
   LLVMBOLTRewrite
   LLVMBOLTUtils
+  LLVMBOLTGadgetScanner
   )
 
 #add_dependencies(bolt llvm-bolt-gadget-scanner)

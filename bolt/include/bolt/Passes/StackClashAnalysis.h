@@ -11,6 +11,7 @@
 
 #include "bolt/Core/BinaryContext.h"
 #include "bolt/Core/BinaryFunction.h"
+#include "bolt/GadgetScanner/Utils.h"
 #include "bolt/Passes/BinaryPasses.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/Support/Errc.h"
@@ -20,25 +21,73 @@
 namespace llvm {
 namespace bolt {
 
-struct StackClashGadget {
-#if 0
-// TODO
-  MCInstReference RetInst;
-  std::vector<MCInstReference> OverwritingRetRegInst;
-  /// address of ret instruction? -> not needed.
-  /// register of ret instruction?
-  bool operator==(const NonPacProtectedRetGadget &RHS) const {
-    return RetInst == RHS.RetInst &&
-           OverwritingRetRegInst == RHS.OverwritingRetRegInst;
+class AccessedPages : public BitVector {
+public:
+  AccessedPages() : BitVector() {}
+  AccessedPages &operator=(const BitVector &BV) {
+    BitVector::operator=(BV);
+    return (*this);
   }
-  NonPacProtectedRetGadget(
-      MCInstReference _RetInst,
-      const std::vector<MCInstReference>& _OverwritingRetRegInst)
-      : RetInst(_RetInst), OverwritingRetRegInst(_OverwritingRetRegInst) {}
-#endif
+  AccessedPages(unsigned size, bool InitVal) : BitVector(size, InitVal) {}
 };
 
-raw_ostream &operator<<(raw_ostream &OS, const StackClashGadget &G);
+inline raw_ostream &operator<<(raw_ostream &OS, const AccessedPages &AP) {
+  OS << AP.size() << ":";
+  for (unsigned I = 0; I < AP.size(); ++I)
+    OS << (AP[I] ? "1" : "0");
+  return OS;
+}
+struct StackClashIssue {
+  enum Kind { NotAllPagesWritten, NonConstantSPChange } kind;
+  AccessedPages AccessedPages;
+  SmallSet<MCInstReference, 1> LastStackGrowingInsts;
+
+protected:
+  StackClashIssue() {}
+
+public:
+  static StackClashIssue createNotAllPagesWritten(
+      const BitVector &AccessedPages,
+      const SmallSet<MCInstReference, 1> &LastStackGrowingInsts) {
+    StackClashIssue SCI;
+    SCI.kind = NotAllPagesWritten;
+    SCI.AccessedPages = AccessedPages;
+    SCI.LastStackGrowingInsts = LastStackGrowingInsts;
+    return SCI;
+  }
+  static StackClashIssue createNonConstantSPChangeData() {
+    StackClashIssue SCI;
+    SCI.kind = NonConstantSPChange;
+    return SCI;
+  }
+  bool operator==(const StackClashIssue &RHS) const {
+    if (kind != RHS.kind)
+      return false;
+    switch (kind) {
+    case NotAllPagesWritten:
+      return AccessedPages == RHS.AccessedPages;
+    case NonConstantSPChange:
+      return true;
+    }
+  }
+};
+
+#if 0
+struct NotAllPagesWritten : public StackClashIssue {
+  BitVector AccessedPages;
+  NotAllPagesWritten(BitVector AccessedPages) : AccessedPages(AccessedPages) {}
+  bool operator==(const NotAllPagesWritten &RHS) const {
+    return AccessedPages == RHS.AccessedPages;
+  }
+};
+
+struct NotConstantSpChange : public StackClashIssue {
+  NotConstantSpChange() {}
+  bool operator==(const NotConstantSpChange &RHS) const { return true; }
+};
+#endif
+
+raw_ostream &operator<<(raw_ostream &OS, const StackClashIssue &G);
 
 class StackClashAnalysis : public BinaryFunctionPass {
   void runOnFunction(BinaryFunction &Function,

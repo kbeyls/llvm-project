@@ -243,6 +243,90 @@ public:
     }
   }
 
+  bool getOffsetChange(int64_t &OffsetChange, const MCInst &Inst,
+                       MCPhysReg Reg) const override {
+    switch (Inst.getOpcode()) {
+    case AArch64::ADDXri:
+    case AArch64::SUBXri:
+      if (Inst.getOperand(0).getReg() != Reg)
+        return false;
+      if (Inst.getOperand(1).getReg() != Reg)
+        return false;
+      {
+        int64_t Offset = Inst.getOperand(2).getImm();
+        int64_t Shift = Inst.getOperand(3).getImm();
+        assert(Shift == 0 || Shift == 12);
+        if (Shift == 12)
+          Offset <<= 12;
+        if (Inst.getOpcode() == AArch64::SUBXri)
+          Offset = -Offset;
+        OffsetChange = Offset;
+        return true;
+      }
+    default:
+      return false;
+    }
+  }
+
+  bool isStackAccess(const MCInst &Inst, int64_t &StackOffset) const override {
+    int64_t Imm = 0;
+    MCPhysReg OffsetReg = getNoRegister();
+    MCPhysReg BaseReg = getNoRegister();
+    switch (Inst.getOpcode()) {
+    // Ignore post and pre increment as we're
+    // looking for reads and writes that do not
+    // change the SP itself?
+    case AArch64::LDRBBroW:
+    case AArch64::LDRSBXroW:
+    case AArch64::LDRSBWroW:
+    case AArch64::LDRBBroX:
+    case AArch64::LDRSBXroX:
+    case AArch64::LDRSBWroX:
+    case AArch64::LDRHHroW:
+    case AArch64::LDRHHroX:
+    case AArch64::LDRSHWroW:
+    case AArch64::LDRSHWroX:
+    case AArch64::LDRSHXroW:
+    case AArch64::LDRSHXroX:
+    case AArch64::LDRWroW:
+    case AArch64::LDRWroX:
+    case AArch64::LDRXroW:
+    case AArch64::LDRXroX:
+      // Operand 0 = result reg
+      BaseReg = Inst.getOperand(1).getReg();
+      OffsetReg = Inst.getOperand(2).getReg();
+      break;
+    case AArch64::LDRBBui:
+    case AArch64::LDRSBWui:
+    case AArch64::LDRSBXui:
+    case AArch64::LDRHHui:
+    case AArch64::LDRSHWui:
+    case AArch64::LDRSHXui:
+    case AArch64::LDRWui:
+    case AArch64::LDRXui:
+      BaseReg = Inst.getOperand(1).getReg();
+      Imm = Inst.getOperand(2).getImm();
+      break;
+    }
+
+    // FIXME also handle FP load/store
+    // FIXME also handle stores
+    // FIXME also need to handle PAuth load/store?
+
+    // FIXME: do we need to deal with frame pointers, base pointers,
+    // etc?
+    if (BaseReg != getStackPointer())
+      return false;
+
+    // For now, we cannot handle register offsets.
+    if (OffsetReg != getNoRegister())
+      return false;
+
+    // FIXME: do I need to scale the immediate?
+    StackOffset = Imm;
+    return true;
+  }
+
   bool isADRP(const MCInst &Inst) const override {
     return Inst.getOpcode() == AArch64::ADRP;
   }
@@ -433,6 +517,8 @@ public:
       llvm_unreachable("Unexpected size");
     }
   }
+
+  MCPhysReg getStackPointer() const override { return AArch64::SP; }
 
   MCPhysReg getIntArgRegister(unsigned ArgNo) const override {
     switch (ArgNo) {

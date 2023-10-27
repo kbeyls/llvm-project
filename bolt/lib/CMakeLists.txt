@@ -1,4 +1,5 @@
 add_subdirectory(Core)
+add_subdirectory(GadgetScanner)
 add_subdirectory(Passes)
 add_subdirectory(Profile)
 add_subdirectory(Rewrite)
