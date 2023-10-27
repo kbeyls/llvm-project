@@ -108,6 +108,8 @@ raw_ostream &operator<<(raw_ostream &OS,
 // they were authenticated). For pac-ret, any return using such a register is
 // a gadget to be reported. For PAuthABI, any indirect control flow using such
 // a register should be reported?
+
+namespace {
 struct State {
   // FIXME: for tracking PAuthABI, probably the SmallSet needs to be made bigger
   // (5 or 10?)
@@ -213,17 +215,17 @@ void PacStateWIPrinter::print(raw_ostream &OS, const StateWithInsts &S) const {
   OS << ">";
 }
 
-class PacRetAnalysis
-    : public DataflowAnalysis<PacRetAnalysis, State, false /*Backward*/,
+class PacRetDFAnalysis
+    : public DataflowAnalysis<PacRetDFAnalysis, State, false /*Backward*/,
                               PacStatePrinter> {
   using Parent =
-      DataflowAnalysis<PacRetAnalysis, State, false, PacStatePrinter>;
+      DataflowAnalysis<PacRetDFAnalysis, State, false, PacStatePrinter>;
   friend Parent;
 
 public:
-  PacRetAnalysis(BinaryFunction &BF, MCPlusBuilder::AllocatorIdTy AllocId)
+  PacRetDFAnalysis(BinaryFunction &BF, MCPlusBuilder::AllocatorIdTy AllocId)
       : Parent(BF, AllocId), NumRegs(BF.getBinaryContext().MRI->getNumRegs()) {}
-  virtual ~PacRetAnalysis() {}
+  virtual ~PacRetDFAnalysis() {}
 
   void run() { Parent::run(); }
 
@@ -241,7 +243,7 @@ protected:
   void doConfluence(State &StateOut, const State &StateIn) {
     PacStatePrinter P(BC);
     LLVM_DEBUG({
-      dbgs() << " PacRetAnalysis::Confluence(\n";
+      dbgs() << " PacRetDFAnalysis::Confluence(\n";
       dbgs() << "   State 1: ";
       P.print(dbgs(), StateOut);
       dbgs() << "\n";
@@ -260,7 +262,7 @@ protected:
   State computeNext(const MCInst &Point, const State &Cur) {
     PacStatePrinter P(BC);
     LLVM_DEBUG({
-      dbgs() << " PacRetAnalysis::Compute(";
+      dbgs() << " PacRetDFAnalysis::Compute(";
       BC.InstPrinter->printInst(&const_cast<MCInst &>(Point), 0, "", *BC.STI,
                                 dbgs());
       dbgs() << ", ";
@@ -280,7 +282,7 @@ protected:
     return Next;
   }
 
-  StringRef getAnnotationName() const { return StringRef("PacRetAnalysis"); }
+  StringRef getAnnotationName() const { return StringRef("PacRetDFAnalysis"); }
 
 public:
   std::vector<MCInstReference>
@@ -290,16 +292,16 @@ public:
   }
 };
 
-class PacRetWIAnalysis
-    : public DataflowAnalysis<PacRetWIAnalysis, StateWithInsts,
+class PacRetDFWIAnalysis
+    : public DataflowAnalysis<PacRetDFWIAnalysis, StateWithInsts,
                               false /*Backward*/, PacStateWIPrinter> {
-  using Parent = DataflowAnalysis<PacRetWIAnalysis, StateWithInsts, false,
+  using Parent = DataflowAnalysis<PacRetDFWIAnalysis, StateWithInsts, false,
                                   PacStateWIPrinter>;
   friend Parent;
 
 public:
-  PacRetWIAnalysis(BinaryFunction &BF, MCPlusBuilder::AllocatorIdTy AllocId,
-                   const std::vector<MCPhysReg> &_RegsToTrackInstsFor)
+  PacRetDFWIAnalysis(BinaryFunction &BF, MCPlusBuilder::AllocatorIdTy AllocId,
+                     const std::vector<MCPhysReg> &_RegsToTrackInstsFor)
       : Parent(BF, AllocId), NumRegs(BF.getBinaryContext().MRI->getNumRegs()),
         RegsToTrackInstsFor(_RegsToTrackInstsFor),
         _Reg2StateIdx(*std::max_element(RegsToTrackInstsFor.begin(),
@@ -309,7 +311,7 @@ public:
     for (unsigned I = 0; I < RegsToTrackInstsFor.size(); ++I)
       _Reg2StateIdx[RegsToTrackInstsFor[I]] = I;
   }
-  virtual ~PacRetWIAnalysis() {}
+  virtual ~PacRetDFWIAnalysis() {}
 
   void run() { Parent::run(); }
 
@@ -342,7 +344,7 @@ protected:
   void doConfluence(StateWithInsts &StateOut, const StateWithInsts &StateIn) {
     PacStateWIPrinter P(BC);
     LLVM_DEBUG({
-      dbgs() << " PacRetWIAnalysis::Confluence(\n";
+      dbgs() << " PacRetDFWIAnalysis::Confluence(\n";
       dbgs() << "   State 1: ";
       P.print(dbgs(), StateOut);
       dbgs() << "\n";
@@ -361,7 +363,7 @@ protected:
   StateWithInsts computeNext(const MCInst &Point, const StateWithInsts &Cur) {
     PacStateWIPrinter P(BC);
     LLVM_DEBUG({
-      dbgs() << " PacRetWIAnalysis::Compute(";
+      dbgs() << " PacRetDFWIAnalysis::Compute(";
       BC.InstPrinter->printInst(&const_cast<MCInst &>(Point), 0, "", *BC.STI,
                                 dbgs());
       dbgs() << ", ";
@@ -394,7 +396,9 @@ protected:
     return Next;
   }
 
-  StringRef getAnnotationName() const { return StringRef("PacRetWIAnalysis"); }
+  StringRef getAnnotationName() const {
+    return StringRef("PacRetDFWIAnalysis");
+  }
 
 public:
   std::vector<MCInstReference>
@@ -422,17 +426,18 @@ public:
   }
 };
 
-void reset_track_state(const BinaryContext &BC, unsigned &RetReg,
-                       std::optional<MCInstReference> &RetInst) {
+static void reset_track_state(const BinaryContext &BC, unsigned &RetReg,
+                              std::optional<MCInstReference> &RetInst) {
   RetInst = {};
   RetReg = BC.MIB->getNoRegister();
 }
 
 // Returns true if a non-protected return was found that should be
 // reported.
-void processOneInst(const MCInstReference Inst, const BinaryContext &BC,
-                    unsigned &RetReg, std::optional<MCInstReference> &RetInst,
-                    const unsigned gadgetAnnotationIndex) {
+static void processOneInst(const MCInstReference Inst, const BinaryContext &BC,
+                           unsigned &RetReg,
+                           std::optional<MCInstReference> &RetInst,
+                           const unsigned gadgetAnnotationIndex) {
   if (BC.MIB->isReturn(Inst)) {
     RetInst = Inst;
     // RetInstOffset = I;
@@ -491,13 +496,15 @@ void processOneInst(const MCInstReference Inst, const BinaryContext &BC,
   return;
 }
 
+} // namespace
+
 template <class PRAnalysis>
 SmallSet<MCPhysReg, 1> NonPacProtectedRetAnalysis::ComputeDFState(
     PRAnalysis &PRA, BinaryFunction &BF,
     MCPlusBuilder::AllocatorIdTy AllocatorId) {
   PRA.run();
   LLVM_DEBUG({
-    dbgs() << " After PacRetAnalysis:\n";
+    dbgs() << " After PacRetDFAnalysis:\n";
     BF.dump();
   });
   // Now scan the CFG for instructions that overwrite any of the live
@@ -573,7 +580,7 @@ void NonPacProtectedRetAnalysis::runOnFunction(
   // unsigned NrInstrScanned = 0;
 
   if (BF.hasCFG()) {
-    PacRetAnalysis PRA(BF, AllocatorId);
+    PacRetDFAnalysis PRA(BF, AllocatorId);
     SmallSet<MCPhysReg, 1> RetRegsWithGadgets =
         ComputeDFState(PRA, BF, AllocatorId);
     if (!RetRegsWithGadgets.empty()) {
@@ -583,7 +590,7 @@ void NonPacProtectedRetAnalysis::runOnFunction(
       std::vector<MCPhysReg> RegsToTrack;
       for (MCPhysReg R : RetRegsWithGadgets)
         RegsToTrack.push_back(R);
-      PacRetWIAnalysis PRWIA(BF, AllocatorId, RegsToTrack);
+      PacRetDFWIAnalysis PRWIA(BF, AllocatorId, RegsToTrack);
       SmallSet<MCPhysReg, 1> RetRegsWithGadgets =
           ComputeDFState(PRWIA, BF, AllocatorId);
     }
@@ -628,9 +635,12 @@ void printBB(const BinaryContext &BC, const BinaryBasicBlock *BB,
   }
 }
 
-void reportFoundGadgetInSingleBBSingleOverwInst(const BinaryContext &BC,
-                                                const MCInstReference OverwInst,
-                                                const MCInstReference RetInst) {
+namespace {
+
+static void
+reportFoundGadgetInSingleBBSingleOverwInst(const BinaryContext &BC,
+                                           const MCInstReference OverwInst,
+                                           const MCInstReference RetInst) {
   BinaryBasicBlock *BB = RetInst.getBasicBlock();
   assert(OverwInst.CurrentLocation == MCInstReference::_BinaryBasicBlock);
   assert(RetInst.CurrentLocation == MCInstReference::_BinaryBasicBlock);
@@ -644,9 +654,10 @@ void reportFoundGadgetInSingleBBSingleOverwInst(const BinaryContext &BC,
   }
 }
 
-void reportFoundGadgetInBFSingleOverwInst(const BinaryContext &BC,
-                                          const MCInstReference OverwInst,
-                                          const MCInstReference RetInst) {
+static void
+reportFoundGadgetInBFSingleOverwInst(const BinaryContext &BC,
+                                     const MCInstReference OverwInst,
+                                     const MCInstReference RetInst) {
   MCInstInBFReference OverwInstRef = OverwInst.u.BFRef;
   MCInstInBFReference RetInstRef = RetInst.u.BFRef;
   BinaryFunction *BF = RetInstRef.BF;
@@ -670,8 +681,8 @@ void reportFoundGadgetInBFSingleOverwInst(const BinaryContext &BC,
   }
 }
 
-void reportFoundGadget(const BinaryContext &BC, const MCInst &Inst,
-                       unsigned int gadgetAnnotationIndex) {
+static void reportFoundGadget(const BinaryContext &BC, const MCInst &Inst,
+                              unsigned int gadgetAnnotationIndex) {
   auto NPPRG = BC.MIB->getAnnotationAs<NonPacProtectedRetGadget>(
       Inst, gadgetAnnotationIndex);
   MCInstReference RetInst = NPPRG.RetInst;
@@ -715,6 +726,8 @@ void reportFoundGadget(const BinaryContext &BC, const MCInst &Inst,
     }
   }
 }
+
+} // namespace
 
 void NonPacProtectedRetAnalysis::runOnFunctions(BinaryContext &BC) {
   gadgetAnnotationIndex = BC.MIB->getOrCreateAnnotationIndex("pacret-gadget");
