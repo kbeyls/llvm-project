@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "AArch64InstrInfo.h"
 #include "MCTargetDesc/AArch64AddressingModes.h"
 #include "MCTargetDesc/AArch64FixupKinds.h"
 #include "MCTargetDesc/AArch64MCExpr.h"
@@ -245,27 +246,16 @@ public:
 
   bool getOffsetChange(int64_t &OffsetChange, const MCInst &Inst,
                        MCPhysReg Reg) const override {
-    switch (Inst.getOpcode()) {
-    case AArch64::ADDXri:
-    case AArch64::SUBXri:
-      if (Inst.getOperand(0).getReg() != Reg)
-        return false;
-      if (Inst.getOperand(1).getReg() != Reg)
-        return false;
-      {
-        int64_t Offset = Inst.getOperand(2).getImm();
-        int64_t Shift = Inst.getOperand(3).getImm();
-        assert(Shift == 0 || Shift == 12);
-        if (Shift == 12)
-          Offset <<= 12;
-        if (Inst.getOpcode() == AArch64::SUBXri)
-          Offset = -Offset;
-        OffsetChange = Offset;
-        return true;
-      }
-    default:
+    std::optional<RegImmPair> RegImm =
+        AArch64MCInstrInfo::isAddImmediate<MCInst, MCOperand>(Inst, Reg);
+    if (RegImm) {
+      int64_t Offset = RegImm->Imm;
+      MCPhysReg R = RegImm->Reg;
+      assert(R == Reg);
+      OffsetChange = Offset;
+      return true;
+    } else
       return false;
-    }
   }
 
   bool isStackAccess(const MCInst &Inst, int64_t &StackOffset) const override {

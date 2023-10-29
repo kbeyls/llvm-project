@@ -33,6 +33,49 @@ static const MachineMemOperand::Flags MOStridedAccess =
 
 #define FALKOR_STRIDED_ACCESS_MD "falkor.strided.access"
 
+namespace AArch64MCInstrInfo {
+// This namespace collects functions that only depend on information
+// available on MCInsts. Therefore, these functions can be used in
+// components that only work at the MCInst layer, such as e.g. BOLT.
+
+template<typename InstClass, typename OperandClass>
+std::optional<RegImmPair> isAddImmediate(const InstClass &MI, Register Reg) {
+  int Sign = 1;
+  int64_t Offset = 0;
+
+  // TODO: Handle cases where Reg is a super- or sub-register of the
+  // destination register.
+  const OperandClass &Op0 = MI.getOperand(0);
+  if (!Op0.isReg() || Reg != Op0.getReg())
+    return std::nullopt;
+
+  switch (MI.getOpcode()) {
+  default:
+    return std::nullopt;
+  case AArch64::SUBWri:
+  case AArch64::SUBXri:
+  case AArch64::SUBSWri:
+  case AArch64::SUBSXri:
+    Sign *= -1;
+    [[fallthrough]];
+  case AArch64::ADDSWri:
+  case AArch64::ADDSXri:
+  case AArch64::ADDWri:
+  case AArch64::ADDXri: {
+    // TODO: Third operand can be global address (usually some string).
+    if (!MI.getOperand(0).isReg() || !MI.getOperand(1).isReg() ||
+        !MI.getOperand(2).isImm())
+      return std::nullopt;
+    int Shift = MI.getOperand(3).getImm();
+    assert((Shift == 0 || Shift == 12) && "Shift can be either 0 or 12");
+    Offset = Sign * (MI.getOperand(2).getImm() << Shift);
+  }
+  }
+  return RegImmPair{MI.getOperand(1).getReg(), Offset};
+}
+
+} // namespace AArch64MCInstrInfo
+
 class AArch64InstrInfo final : public AArch64GenInstrInfo {
   const AArch64RegisterInfo RI;
   const AArch64Subtarget &Subtarget;
