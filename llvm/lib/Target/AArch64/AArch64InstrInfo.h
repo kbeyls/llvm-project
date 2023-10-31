@@ -20,9 +20,15 @@
 #include <optional>
 
 #define GET_INSTRINFO_HEADER
+#define GET_INSTRINFO_OPERAND_ENUM // For OpName enum
+
 #include "AArch64GenInstrInfo.inc"
 
 namespace llvm {
+
+namespace AArch64 {
+int16_t getNamedOperandIdx(uint16_t Opcode, uint16_t NamedIndex);
+} // End namespace AArch64
 
 class AArch64Subtarget;
 
@@ -73,6 +79,9 @@ std::optional<RegImmPair> isAddImmediate(const InstClass &MI, Register Reg) {
   }
   return RegImmPair{MI.getOperand(1).getReg(), Offset};
 }
+
+bool isPreLdStOpcode(const MCInstrInfo& MII, unsigned Opc);
+bool isPostLdStOpcode(const MCInstrInfo& MII, unsigned Opc);
 
 } // namespace AArch64MCInstrInfo
 
@@ -151,7 +160,7 @@ public:
   /// Returns the base register operator of a load/store.
   static const MachineOperand &getLdStBaseOp(const MachineInstr &MI);
 
-  /// Returns the immediate offset operator of a load/store.
+ /// Returns the immediate offset operator of a load/store.
   static const MachineOperand &getLdStOffsetOp(const MachineInstr &MI);
 
   /// Returns whether the instruction is FP or NEON.
@@ -387,6 +396,10 @@ public:
   bool isPTestLikeOpcode(unsigned Opc) const;
   /// Returns true if the opcode is for an SVE WHILE## instruction.
   bool isWhileOpcode(unsigned Opc) const;
+  /// Returns true if the opcode if for a pre-index load or store instruction.
+  bool isPreLdStOpcode(unsigned Opc) const;
+  /// Returns true if the opcode if for a post-index load or store instruction.
+  bool isPostLdStOpcode(unsigned Opc) const;
   /// Returns true if the instruction has a shift by immediate that can be
   /// executed in one cycle less.
   static bool isFalkorShiftExtFast(const MachineInstr &MI);
@@ -634,6 +647,7 @@ static inline unsigned getPACOpcodeForKey(AArch64PACKey::ID K, bool Zero) {
 #define TSFLAG_FALSE_LANE_TYPE(X)       ((X) << 7)  // 2-bits
 #define TSFLAG_INSTR_FLAGS(X)           ((X) << 9)  // 2-bits
 #define TSFLAG_SME_MATRIX_TYPE(X)       ((X) << 11) // 3-bits
+#define TSFLAG_LD_PREPOST_FLAGS(X)      ((X) << 14) // 2-bits
 // }
 
 namespace AArch64 {
@@ -670,6 +684,10 @@ enum FalseLaneType {
 // NOTE: This is a bit field.
 static const uint64_t InstrFlagIsWhile     = TSFLAG_INSTR_FLAGS(0x1);
 static const uint64_t InstrFlagIsPTestLike = TSFLAG_INSTR_FLAGS(0x2);
+
+// NOTE: This is a bit field.
+static const uint64_t InstrFlagIsPreLdSt   = TSFLAG_LD_PREPOST_FLAGS(0x1);
+static const uint64_t InstrFlagIsPostLdSt  = TSFLAG_LD_PREPOST_FLAGS(0x2);
 
 enum SMEMatrixType {
   SMEMatrixTypeMask = TSFLAG_SME_MATRIX_TYPE(0x7),

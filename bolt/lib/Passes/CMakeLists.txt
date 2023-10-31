@@ -68,4 +68,5 @@ target_link_libraries(LLVMBOLTPasses
   PRIVATE
   LLVMBOLTCore
   LLVMBOLTUtils
+  LLVMBOLTGadgetScanner
   )

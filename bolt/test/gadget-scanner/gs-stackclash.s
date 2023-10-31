@@ -19,7 +19,7 @@ f_fixed_large_stack :
 // CHECK-NEXT:    Pages seen as accessed in between the SP changes: 8:10000000
 
 // verify that no other issues are reported:
-// TODO: CHECK -NOT: GS-STACKCLASH:
+// CHECK-NOT: GS-STACKCLASH:
 
 
 // TODO: mov     x12, 32000

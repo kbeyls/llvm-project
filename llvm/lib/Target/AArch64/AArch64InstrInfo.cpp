@@ -57,6 +57,7 @@
 
 using namespace llvm;
 
+#define GET_INSTRINFO_NAMED_OPS // For getNamedOperandIdx() function
 #define GET_INSTRINFO_CTOR_DTOR
 #include "AArch64GenInstrInfo.inc"
 
@@ -3947,6 +3948,10 @@ int AArch64InstrInfo::getMemScale(unsigned Opc) {
   default:
     llvm_unreachable("Opcode has unknown scale!");
   case AArch64::LDRBBui:
+  case AArch64::LDRBBpost:
+  case AArch64::LDRBBpre:
+  case AArch64::LDRBpost:
+  case AArch64::LDRBpre:
   case AArch64::LDURBBi:
   case AArch64::LDRSBWui:
   case AArch64::LDURSBWi:
@@ -3954,6 +3959,10 @@ int AArch64InstrInfo::getMemScale(unsigned Opc) {
   case AArch64::STURBBi:
     return 1;
   case AArch64::LDRHHui:
+  case AArch64::LDRHHpost:
+  case AArch64::LDRHHpre:
+  case AArch64::LDRHpost:
+  case AArch64::LDRHpre:
   case AArch64::LDURHHi:
   case AArch64::LDRSHWui:
   case AArch64::LDURSHWi:
@@ -3976,17 +3985,29 @@ int AArch64InstrInfo::getMemScale(unsigned Opc) {
   case AArch64::STURWi:
   case AArch64::STRWpre:
   case AArch64::LDPSi:
+  case AArch64::LDPSpost:
+  case AArch64::LDPSpre:
   case AArch64::LDPSWi:
+  case AArch64::LDPSWpost:
+  case AArch64::LDPSWpre:
   case AArch64::LDPWi:
+  case AArch64::LDPWpost:
+  case AArch64::LDPWpre:
   case AArch64::STPSi:
+  case AArch64::STPSpost:
+  case AArch64::STPSpre:
   case AArch64::STPWi:
+  case AArch64::STPWpost:
+  case AArch64::STPWpre:
     return 4;
   case AArch64::LDRDui:
-  case AArch64::LDURDi:
+  case AArch64::LDRDpost:
   case AArch64::LDRDpre:
+  case AArch64::LDURDi:
   case AArch64::LDRXui:
-  case AArch64::LDURXi:
+  case AArch64::LDRXpost:
   case AArch64::LDRXpre:
+  case AArch64::LDURXi:
   case AArch64::STRDui:
   case AArch64::STURDi:
   case AArch64::STRDpre:
@@ -3994,18 +4015,31 @@ int AArch64InstrInfo::getMemScale(unsigned Opc) {
   case AArch64::STURXi:
   case AArch64::STRXpre:
   case AArch64::LDPDi:
+  case AArch64::LDPDpost:
+  case AArch64::LDPDpre:
   case AArch64::LDPXi:
+  case AArch64::LDPXpost:
+  case AArch64::LDPXpre:
   case AArch64::STPDi:
+  case AArch64::STPDpost:
+  case AArch64::STPDpre:
   case AArch64::STPXi:
+  case AArch64::STPXpost:
+  case AArch64::STPXpre:
     return 8;
   case AArch64::LDRQui:
+  case AArch64::LDRQpost:
+  case AArch64::LDRQpre:
   case AArch64::LDURQi:
   case AArch64::STRQui:
   case AArch64::STURQi:
   case AArch64::STRQpre:
   case AArch64::LDPQi:
-  case AArch64::LDRQpre:
+  case AArch64::LDPQpost:
+  case AArch64::LDPQpre:
   case AArch64::STPQi:
+  case AArch64::STPQpost:
+  case AArch64::STPQpre:
   case AArch64::STGi:
   case AArch64::STZGi:
   case AArch64::ST2Gi:
@@ -9340,6 +9374,22 @@ bool AArch64InstrInfo::isPTestLikeOpcode(unsigned Opc) const {
 
 bool AArch64InstrInfo::isWhileOpcode(unsigned Opc) const {
   return get(Opc).TSFlags & AArch64::InstrFlagIsWhile;
+}
+
+bool AArch64MCInstrInfo::isPreLdStOpcode(const MCInstrInfo& MII, unsigned Opc) {
+  return MII.get(Opc).TSFlags & AArch64::InstrFlagIsPreLdSt;
+}
+
+bool AArch64MCInstrInfo::isPostLdStOpcode(const MCInstrInfo& MII, unsigned Opc) {
+  return MII.get(Opc).TSFlags & AArch64::InstrFlagIsPostLdSt;
+}
+
+bool AArch64InstrInfo::isPreLdStOpcode(unsigned Opc) const {
+  return AArch64MCInstrInfo::isPreLdStOpcode(*this, Opc);
+}
+
+bool AArch64InstrInfo::isPostLdStOpcode(unsigned Opc) const {
+  return AArch64MCInstrInfo::isPostLdStOpcode(*this, Opc);
 }
 
 unsigned int

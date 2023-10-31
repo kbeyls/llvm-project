@@ -246,16 +246,32 @@ public:
 
   bool getOffsetChange(int64_t &OffsetChange, const MCInst &Inst,
                        MCPhysReg Reg) const override {
-    std::optional<RegImmPair> RegImm =
-        AArch64MCInstrInfo::isAddImmediate<MCInst, MCOperand>(Inst, Reg);
-    if (RegImm) {
+    unsigned Opc = Inst.getOpcode();
+    if (std::optional<RegImmPair> RegImm =
+            AArch64MCInstrInfo::isAddImmediate<MCInst, MCOperand>(Inst, Reg)) {
       int64_t Offset = RegImm->Imm;
       MCPhysReg R = RegImm->Reg;
       assert(R == Reg);
       OffsetChange = Offset;
       return true;
-    } else
-      return false;
+    } else if ((AArch64MCInstrInfo::isPreLdStOpcode(*Info, Opc) ||
+                AArch64MCInstrInfo::isPostLdStOpcode(*Info, Opc))) {
+      int16_t BaseOpIdx = AArch64::getNamedOperandIdx(Opc, AArch64::OpName::Rn);
+      assert(BaseOpIdx != -1); // We assume that every pre-/post-index LD/ST
+      // does have an Rn field.
+      if (Inst.getOperand(BaseOpIdx).getReg() != Reg)
+        return false;
+      int16_t OffsetOpIdx =
+          AArch64::getNamedOperandIdx(Opc, AArch64::OpName::offset);
+      // We can only handle immediate offsets.
+      if (OffsetOpIdx == -1 || !Inst.getOperand(OffsetOpIdx).isImm())
+        return false;
+      int64_t Offset = Inst.getOperand(OffsetOpIdx).getImm() *
+                       AArch64InstrInfo::getMemScale(Opc);
+      OffsetChange = Offset;
+      return true;
+    }
+    return false;
   }
 
   bool isStackAccess(const MCInst &Inst, int64_t &StackOffset) const override {

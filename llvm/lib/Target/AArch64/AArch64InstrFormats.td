@@ -57,6 +57,7 @@ def SMEMatrixTileQ : SMEMatrixTypeEnum<5>;
 def SMEMatrixArray : SMEMatrixTypeEnum<6>;
 
 // AArch64 Instruction Format
+let UseNamedOperandTable = 1 in
 class AArch64Inst<Format f, string cstr> : Instruction {
   field bits<32> Inst; // Instruction encoding.
   // Mask of bits that cause an encoding to be UNPREDICTABLE.
@@ -74,11 +75,15 @@ class AArch64Inst<Format f, string cstr> : Instruction {
   // Defaults
   bit isWhile = 0;
   bit isPTestLike = 0;
+  bit isPreLdSt = 0;
+  bit isPostLdSt = 0;
   FalseLanesEnum FalseLanes = FalseLanesNone;
   DestructiveInstTypeEnum DestructiveInstType = NotDestructive;
   SMEMatrixTypeEnum SMEMatrixType = SMEMatrixNone;
   ElementSizeEnum ElementSize = ElementSizeNone;
 
+  let TSFlags{15}    = isPostLdSt;
+  let TSFlags{14}    = isPreLdSt;
   let TSFlags{13-11} = SMEMatrixType.Value;
   let TSFlags{10}    = isPTestLike;
   let TSFlags{9}     = isWhile;
@@ -3723,6 +3728,7 @@ def ro64 : ROAddrMode<ro_Windexed64, ro_Xindexed64, ro_Wextend64, ro_Xextend64>;
 def ro128 : ROAddrMode<ro_Windexed128, ro_Xindexed128, ro_Wextend128,
                        ro_Xextend128>;
 
+// FIXME: this should have PreLDSt set?
 class LoadStore8RO<bits<2> sz, bit V, bits<2> opc, string asm, dag ins,
                    dag outs, list<dag> pat>
     : I<ins, outs, asm, "\t$Rt, [$Rn, $Rm, $extend]", "", pat> {
@@ -4295,6 +4301,7 @@ multiclass StoreUnprivileged<bits<2> sz, bit V, bits<2> opc,
 // Load/store pre-indexed
 //---
 
+let isPreLdSt = 1 in
 class BaseLoadStorePreIdx<bits<2> sz, bit V, bits<2> opc, dag oops, dag iops,
                           string asm, string cstr, list<dag> pat>
     : I<oops, iops, asm, "\t$Rt, [$Rn, $offset]!", cstr, pat> {
@@ -4341,6 +4348,7 @@ class StorePreIdx<bits<2> sz, bit V, bits<2> opc, RegisterOperand regtype,
 // Load/store post-indexed
 //---
 
+let isPostLdSt = 1 in
 class BaseLoadStorePostIdx<bits<2> sz, bit V, bits<2> opc, dag oops, dag iops,
                           string asm, string cstr, list<dag> pat>
     : I<oops, iops, asm, "\t$Rt, [$Rn], $offset", cstr, pat> {
@@ -4439,6 +4447,7 @@ multiclass StorePairOffset<bits<2> opc, bit V, RegisterOperand regtype,
 }
 
 // (pre-indexed)
+let isPreLdSt = 1 in
 class BaseLoadStorePairPreIdx<bits<2> opc, bit V, bit L, dag oops, dag iops,
                               string asm>
     : I<oops, iops, asm, "\t$Rt, $Rt2, [$Rn, $offset]!", "$Rn = $wback,@earlyclobber $wback", []> {
@@ -4479,7 +4488,7 @@ class StorePairPreIdx<bits<2> opc, bit V, RegisterOperand regtype,
 } // hasSideEffects = 0
 
 // (post-indexed)
-
+let isPostLdSt = 1 in
 class BaseLoadStorePairPostIdx<bits<2> opc, bit V, bit L, dag oops, dag iops,
                               string asm>
     : I<oops, iops, asm, "\t$Rt, $Rt2, [$Rn], $offset", "$Rn = $wback,@earlyclobber $wback", []> {
@@ -4752,11 +4761,13 @@ multiclass MemTagStore<bits<2> opc1, string insn> {
   def i :
     BaseMemTagStore<opc1, 0b10, insn, "\t$Rt, [$Rn, $offset]", "",
                     (outs), (ins GPR64sp:$Rt, GPR64sp:$Rn, simm9s16:$offset)>;
+  let isPreLdSt = 1 in
   def PreIndex :
     BaseMemTagStore<opc1, 0b11, insn, "\t$Rt, [$Rn, $offset]!",
                     "$Rn = $wback",
                     (outs GPR64sp:$wback),
                     (ins GPR64sp:$Rt, GPR64sp:$Rn, simm9s16:$offset)>;
+  let isPostLdSt = 1 in
   def PostIndex :
     BaseMemTagStore<opc1, 0b01, insn, "\t$Rt, [$Rn], $offset",
                     "$Rn = $wback",
@@ -10260,6 +10271,7 @@ class BaseSIMDLdSt<bit Q, bit L, bits<4> opcode, bits<2> size,
   let Inst{4-0} = Vt;
 }
 
+let isPostLdSt = 1 in
 class BaseSIMDLdStPost<bit Q, bit L, bits<4> opcode, bits<2> size,
                        string asm, dag oops, dag iops>
   : I<oops, iops, asm, "\t$Vt, [$Rn], $Xm", "$Rn = $wback", []> {
@@ -10591,7 +10603,7 @@ class BaseSIMDLdR<bit Q, bit R, bits<3> opcode, bit S, bits<2> size, string asm,
   let Inst{12} = S;
   let Inst{11-10} = size;
 }
-let mayLoad = 1, mayStore = 0, hasSideEffects = 0 in
+let mayLoad = 1, mayStore = 0, hasSideEffects = 0, isPostLdSt = 1 in
 class BaseSIMDLdRPost<bit Q, bit R, bits<3> opcode, bit S, bits<2> size,
                       string asm, DAGOperand listtype, DAGOperand GPR64pi>
   : BaseSIMDLdStSingle<1, R, opcode, asm, "\t$Vt, [$Rn], $Xm",
@@ -10726,6 +10738,7 @@ class SIMDLdStSingleBTied<bit L, bit R, bits<3> opcode, string asm,
   let Inst{12} = idx{2};
   let Inst{11-10} = idx{1-0};
 }
+let isPostLdSt = 1 in
 class SIMDLdStSingleBPost<bit L, bit R, bits<3> opcode, string asm,
                           dag oops, dag iops>
   : BaseSIMDLdStSingle<L, R, opcode, asm, "\t$Vt$idx, [$Rn], $Xm",
@@ -10739,6 +10752,7 @@ class SIMDLdStSingleBPost<bit L, bit R, bits<3> opcode, string asm,
   let Inst{12} = idx{2};
   let Inst{11-10} = idx{1-0};
 }
+let isPostLdSt = 1 in
 class SIMDLdStSingleBTiedPost<bit L, bit R, bits<3> opcode, string asm,
                           dag oops, dag iops>
   : BaseSIMDLdStSingleTied<L, R, opcode, asm, "\t$Vt$idx, [$Rn], $Xm",
@@ -10780,6 +10794,7 @@ class SIMDLdStSingleHTied<bit L, bit R, bits<3> opcode, bit size, string asm,
   let Inst{10} = size;
 }
 
+let isPostLdSt = 1 in
 class SIMDLdStSingleHPost<bit L, bit R, bits<3> opcode, bit size, string asm,
                           dag oops, dag iops>
   : BaseSIMDLdStSingle<L, R, opcode, asm, "\t$Vt$idx, [$Rn], $Xm",
@@ -10794,6 +10809,7 @@ class SIMDLdStSingleHPost<bit L, bit R, bits<3> opcode, bit size, string asm,
   let Inst{11} = idx{0};
   let Inst{10} = size;
 }
+let isPostLdSt = 1 in
 class SIMDLdStSingleHTiedPost<bit L, bit R, bits<3> opcode, bit size, string asm,
                           dag oops, dag iops>
   : BaseSIMDLdStSingleTied<L, R, opcode, asm, "\t$Vt$idx, [$Rn], $Xm",
@@ -10832,6 +10848,7 @@ class SIMDLdStSingleSTied<bit L, bit R, bits<3> opcode, bits<2> size, string asm
   let Inst{12} = idx{0};
   let Inst{11-10} = size;
 }
+let isPostLdSt = 1 in
 class SIMDLdStSingleSPost<bit L, bit R, bits<3> opcode, bits<2> size,
                           string asm, dag oops, dag iops>
   : BaseSIMDLdStSingle<L, R, opcode, asm, "\t$Vt$idx, [$Rn], $Xm",
@@ -10845,6 +10862,7 @@ class SIMDLdStSingleSPost<bit L, bit R, bits<3> opcode, bits<2> size,
   let Inst{12} = idx{0};
   let Inst{11-10} = size;
 }
+let isPostLdSt = 1 in
 class SIMDLdStSingleSTiedPost<bit L, bit R, bits<3> opcode, bits<2> size,
                           string asm, dag oops, dag iops>
   : BaseSIMDLdStSingleTied<L, R, opcode, asm, "\t$Vt$idx, [$Rn], $Xm",
@@ -10882,6 +10900,7 @@ class SIMDLdStSingleDTied<bit L, bit R, bits<3> opcode, bits<2> size, string asm
   let Inst{12} = 0;
   let Inst{11-10} = size;
 }
+let isPostLdSt = 1 in
 class SIMDLdStSingleDPost<bit L, bit R, bits<3> opcode, bits<2> size,
                           string asm, dag oops, dag iops>
   : BaseSIMDLdStSingle<L, R, opcode, asm, "\t$Vt$idx, [$Rn], $Xm",
@@ -10895,6 +10914,7 @@ class SIMDLdStSingleDPost<bit L, bit R, bits<3> opcode, bits<2> size,
   let Inst{12} = 0;
   let Inst{11-10} = size;
 }
+let isPostLdSt = 1 in
 class SIMDLdStSingleDTiedPost<bit L, bit R, bits<3> opcode, bits<2> size,
                           string asm, dag oops, dag iops>
   : BaseSIMDLdStSingleTied<L, R, opcode, asm, "\t$Vt$idx, [$Rn], $Xm",
