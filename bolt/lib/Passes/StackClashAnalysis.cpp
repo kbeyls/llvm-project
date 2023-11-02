@@ -61,7 +61,7 @@ struct State {
   //          newly allocated pages have and which ones have not been accessed.
   // Attempt 1 to store this state: "simply" efficiently record which pages
   // (described in terms of the current SP value) have not been accessed yet.
-  AccessedPages AccessedPages;
+  AccessedPagesT AccessedPages;
   SmallSet<MCInstReference, 1> LastStackGrowingInsts;
   // bool FlaggedForReporting = false;
   State() {}
@@ -203,7 +203,7 @@ protected:
           dbgs() << "    OffsetChange: " << OffsetChange
                  << "; NrPages: " << NrPages << "\n";
         });
-        Next.AccessedPages = AccessedPages(NrPages, false);
+        Next.AccessedPages = AccessedPagesT(NrPages, false);
         Next.LastStackGrowingInsts.insert(MCInstInBBReference::get(&Point, BF));
       } else {
 #if 0

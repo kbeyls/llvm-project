@@ -21,17 +21,17 @@
 namespace llvm {
 namespace bolt {
 
-class AccessedPages : public BitVector {
+class AccessedPagesT : public BitVector {
 public:
-  AccessedPages() : BitVector() {}
-  AccessedPages &operator=(const BitVector &BV) {
+  AccessedPagesT() : BitVector() {}
+  AccessedPagesT &operator=(const BitVector &BV) {
     BitVector::operator=(BV);
     return (*this);
   }
-  AccessedPages(unsigned size, bool InitVal) : BitVector(size, InitVal) {}
+  AccessedPagesT(unsigned size, bool InitVal) : BitVector(size, InitVal) {}
 };
 
-inline raw_ostream &operator<<(raw_ostream &OS, const AccessedPages &AP) {
+inline raw_ostream &operator<<(raw_ostream &OS, const AccessedPagesT &AP) {
   OS << AP.size() << ":";
   for (unsigned I = 0; I < AP.size(); ++I)
     OS << (AP[I] ? "1" : "0");
@@ -39,7 +39,7 @@ inline raw_ostream &operator<<(raw_ostream &OS, const AccessedPages &AP) {
 }
 struct StackClashIssue {
   enum Kind { NotAllPagesWritten, NonConstantSPChange } kind;
-  AccessedPages AccessedPages;
+  AccessedPagesT AccessedPages;
   SmallSet<MCInstReference, 1> LastStackGrowingInsts;
 
 protected:
@@ -69,6 +69,7 @@ public:
     case NonConstantSPChange:
       return true;
     }
+    llvm_unreachable("Not all cases handled in switch?");
   }
 };
 
