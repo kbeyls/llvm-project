@@ -157,6 +157,10 @@ protected:
   }
 
   State computeNext(const MCInst &Point, const State &Cur) {
+    State Next = Cur;
+    if (BC.MIB->isCFI(Point))
+      return Next;
+
     StackClashStatePrinter P(BC);
     LLVM_DEBUG({
       dbgs() << " StackClashDFAnalysis::Compute(";
@@ -166,9 +170,6 @@ protected:
       P.print(dbgs(), Cur);
       dbgs() << ")\n";
     });
-
-    State Next = Cur;
-    // Next = Cur; //.copyWithoutReportingInfo(Cur);
 
     const MCPhysReg SP = BC.MIB->getStackPointer();
 

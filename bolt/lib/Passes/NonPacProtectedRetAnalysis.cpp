@@ -228,6 +228,10 @@ protected:
   }
 
   State computeNext(const MCInst &Point, const State &Cur) {
+    State Next = Cur;
+    if (BC.MIB->isCFI(Point))
+      return Next;
+
     PacStatePrinter P(BC);
     LLVM_DEBUG({
       dbgs() << " PacRetDFAnalysis::Compute(";
@@ -238,7 +242,6 @@ protected:
       dbgs() << ")\n";
     });
 
-    State Next = Cur;
     BitVector Written = BitVector(NumRegs, false);
     BC.MIB->getWrittenRegs(Point, Written);
     Next.NonAutClobRegs |= Written;
@@ -329,6 +332,10 @@ protected:
   }
 
   StateWithInsts computeNext(const MCInst &Point, const StateWithInsts &Cur) {
+    StateWithInsts Next = Cur;
+    if (BC.MIB->isCFI(Point))
+      return Next;
+
     PacStateWIPrinter P(BC);
     LLVM_DEBUG({
       dbgs() << " PacRetDFWIAnalysis::Compute(";
@@ -339,7 +346,6 @@ protected:
       dbgs() << ")\n";
     });
 
-    StateWithInsts Next = Cur;
     BitVector Written = BitVector(NumRegs, false);
     BC.MIB->getWrittenRegs(Point, Written);
     Next.NonAutClobRegs |= Written;
