@@ -196,8 +196,8 @@ protected:
         int NrPages = 0;
         // Assume a down-growing stack
         if (OffsetChange < 0)
-          // FIXME: verify that rounding down is correct.
-          NrPages = (-OffsetChange) / PAGESIZE;
+          // FIXME: verify that rounding down is correct. Add test case.
+          NrPages = (-OffsetChange + 1) / PAGESIZE + 1;
         LLVM_DEBUG({
           dbgs() << "  Found SP Offset change: ";
           BC.printInstruction(dbgs(), Point);
@@ -260,6 +260,7 @@ void StackClashAnalysis::runOnFunction(
     for (BinaryBasicBlock &BB : BF) {
       for (size_t I = 0; I < BB.size(); ++I) {
         MCInst &Inst = BB.getInstructionAtIndex(I);
+        SmallVector<StackClashIssue, 2> SCIAnnotations;
         if (BC.MIB->hasDefOfPhysReg(Inst, SP)) {
           // The SP value changes. Therefore, check that all new pages allocated
           // since the previous SP value change have been accessed. If not, mark
@@ -273,13 +274,12 @@ void StackClashAnalysis::runOnFunction(
               dbgs() << "    AccessedPages state: " << S << "\n";
             });
             // Add an annotation to report
-            BC.MIB->addAnnotation(
-                Inst, gadgetAnnotationIndex,
+            SCIAnnotations.push_back(
                 StackClashIssue::createNotAllPagesWritten(
-                    S.AccessedPages, S.LastStackGrowingInsts));
+                    S.AccessedPages, S.LastStackGrowingInsts)); //);
           }
 
-          // Next, validate that validate that we can track by how much the SP
+          // Next, validate that we can track by how much the SP
           // value changes. This should be a constant amount.
           // Else, if we cannot determine the fixed offset, mark this location
           // as needing a report that this potentially changes the SP value by a
@@ -295,11 +295,17 @@ void StackClashAnalysis::runOnFunction(
                         "amount: ";
               BC.printInstruction(dbgs(), Inst);
             });
-            BC.MIB->addAnnotation(
-                Inst, gadgetAnnotationIndex,
+            SCIAnnotations.push_back(
                 StackClashIssue::createNonConstantSPChangeData());
           }
         }
+        // merge and add annotations
+        if (SCIAnnotations.size() == 0)
+          continue;
+        StackClashIssue MergedSCI = StackClashIssue::createEmpty();
+        for (StackClashIssue &SCI : SCIAnnotations)
+          MergedSCI |= SCI;
+        BC.MIB->addAnnotation(Inst, gadgetAnnotationIndex, MergedSCI);
       }
     }
   }
@@ -313,8 +319,7 @@ void reportFoundGadget(const BinaryContext &BC, const BinaryBasicBlock &BB,
       BC.MIB->getAnnotationAs<StackClashIssue>(Inst, gadgetAnnotationIndex);
   BinaryFunction *BF = BB.getParent();
   auto BFName = BF->getPrintName();
-  switch (SCI.kind) {
-  case StackClashIssue::NotAllPagesWritten: {
+  if (SCI.NotAllPagesWritten) {
     outs() << "\nGS-STACKCLASH: large SP increase without necessary accesses "
               "found in "
               "function "
@@ -336,14 +341,13 @@ void reportFoundGadget(const BinaryContext &BC, const BinaryBasicBlock &BB,
     BC.MIB->getOffsetChange(OffsetChange, Inst, BC.MIB->getStackPointer());
     outs() << "  Pages seen as accessed in between the SP changes: "
            << SCI.AccessedPages << "\n";
-  } break;
-  case StackClashIssue::NonConstantSPChange:
+  }
+  if (SCI.NonConstantSPChange) {
     outs() << "\nGS-STACKCLASH: non-constant SP change found in function "
            << BFName;
     outs() << "\n";
     outs() << "  instruction ";
     BC.printInstruction(outs(), Inst /*, BF->getAddress() + (*I).first, BF*/);
-    break;
   }
 }
 

@@ -16,7 +16,7 @@ f_fixed_large_stack :
 // CHECK-NEXT:    * {{[0-9a-f]+}}:      sub     sp, sp, #0x8, lsl #12
 // CHECK-NEXT:    This instruction changes the SP next, while not all pages allocated by the previous instructions have been accessed since:
 // CHECK-NEXT:    * {{[0-9a-f]+}}:      add     sp, sp, #0x8, lsl #12
-// CHECK-NEXT:    Pages seen as accessed in between the SP changes: 8:10000000
+// CHECK-NEXT:    Pages seen as accessed in between the SP changes: 9:10000000
 
 // verify that no other issues are reported:
 // CHECK-NOT: GS-STACKCLASH:

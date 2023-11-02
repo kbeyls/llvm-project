@@ -38,7 +38,9 @@ inline raw_ostream &operator<<(raw_ostream &OS, const AccessedPagesT &AP) {
   return OS;
 }
 struct StackClashIssue {
-  enum Kind { NotAllPagesWritten, NonConstantSPChange } kind;
+  bool NotAllPagesWritten;
+  bool NonConstantSPChange;
+  // The following fields are only used in case NotAllPagesWritten is true.
   AccessedPagesT AccessedPages;
   SmallSet<MCInstReference, 1> LastStackGrowingInsts;
 
@@ -46,30 +48,43 @@ protected:
   StackClashIssue() {}
 
 public:
+  static StackClashIssue createEmpty() {
+    StackClashIssue SCI;
+    SCI.NotAllPagesWritten = false;
+    SCI.NonConstantSPChange = false;
+    return SCI;
+  }
   static StackClashIssue createNotAllPagesWritten(
       const BitVector &AccessedPages,
       const SmallSet<MCInstReference, 1> &LastStackGrowingInsts) {
     StackClashIssue SCI;
-    SCI.kind = NotAllPagesWritten;
+    SCI.NotAllPagesWritten = true;
+    SCI.NonConstantSPChange = false;
     SCI.AccessedPages = AccessedPages;
     SCI.LastStackGrowingInsts = LastStackGrowingInsts;
     return SCI;
   }
   static StackClashIssue createNonConstantSPChangeData() {
     StackClashIssue SCI;
-    SCI.kind = NonConstantSPChange;
+    SCI.NotAllPagesWritten = false;
+    SCI.NonConstantSPChange = true;
     return SCI;
   }
   bool operator==(const StackClashIssue &RHS) const {
-    if (kind != RHS.kind)
-      return false;
-    switch (kind) {
-    case NotAllPagesWritten:
-      return AccessedPages == RHS.AccessedPages;
-    case NonConstantSPChange:
-      return true;
+    return NotAllPagesWritten == RHS.NotAllPagesWritten &&
+           NonConstantSPChange == RHS.NonConstantSPChange &&
+           AccessedPages == RHS.AccessedPages;
+  }
+  StackClashIssue &operator|=(const StackClashIssue &RHS) {
+    NonConstantSPChange |= RHS.NonConstantSPChange;
+    if (RHS.NotAllPagesWritten) {
+      NotAllPagesWritten = true;
+      // FIXME: correctly merge AccessedPages
+      AccessedPages |= RHS.AccessedPages;
+      for(MCInstReference R: RHS.LastStackGrowingInsts)
+        LastStackGrowingInsts.insert(R);
     }
-    llvm_unreachable("Not all cases handled in switch?");
+    return *this;
   }
 };
 

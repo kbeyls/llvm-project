@@ -249,9 +249,10 @@ public:
     unsigned Opc = Inst.getOpcode();
     if (std::optional<RegImmPair> RegImm =
             AArch64MCInstrInfo::isAddImmediate<MCInst, MCOperand>(Inst, Reg)) {
+      MCPhysReg SrcReg = RegImm->Reg;
+      if (SrcReg != Reg)
+        return false;
       int64_t Offset = RegImm->Imm;
-      MCPhysReg R = RegImm->Reg;
-      assert(R == Reg);
       OffsetChange = Offset;
       return true;
     } else if ((AArch64MCInstrInfo::isPreLdStOpcode(*Info, Opc) ||
