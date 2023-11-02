@@ -266,7 +266,7 @@ void StackClashAnalysis::runOnFunction(
           // since the previous SP value change have been accessed. If not, mark
           // this location as needing a diagnostic to be reported.
           State S = *SCDFA.getStateBefore(Inst);
-          if (!S.AccessedPages.all()) {
+          if (!S.AccessedPages.AllWrittenIgnoringClosestPageToSP()) {
             LLVM_DEBUG({
               dbgs()
                   << "  Found SP Offset change with not all pages accessed: ";

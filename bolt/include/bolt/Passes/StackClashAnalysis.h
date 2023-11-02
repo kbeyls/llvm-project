@@ -29,6 +29,15 @@ public:
     return (*this);
   }
   AccessedPagesT(unsigned size, bool InitVal) : BitVector(size, InitVal) {}
+  bool AllWrittenIgnoringClosestPageToSP() const {
+    if (size() == 0)
+      return true;
+    // Mask off the first bit to ignore it.
+    BitVector Mask(size(), false);
+    Mask.set(0);
+    Mask |= *this;
+    return Mask.all();
+  }
 };
 
 inline raw_ostream &operator<<(raw_ostream &OS, const AccessedPagesT &AP) {
