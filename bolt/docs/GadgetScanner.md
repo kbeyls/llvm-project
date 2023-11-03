@@ -40,6 +40,30 @@ does not get done for testing the security properties of binary code.
 The `llvm-bolt-gadget-scanner` aims to help bridge that gap by scanning binaries
 for the security properties that each implemented mitigation should provide.
 
+## Building `llvm-bolt-gadget-scanner` from source
+
+1. Check out the source repository, e.g. in a directory called `llvm-bolt-gadget-scanner`
+2. Make a build directory next to the source directory; e.g. by doing `mkdir build-bolt-rel`
+3. Run cmake in this build directory. For a release-with-asserts build, the following
+   should work:
+   ```
+   $ cd build-bolt-rel
+   $ cmake -G Ninja \
+  -DLLVM_ENABLE_PROJECTS="bolt;lld;clang" \
+  -DLLVM_ENABLE_ASSERTIONS=On \
+  -DLLVM_TARGETS_TO_BUILD="X86;AArch64;RISCV" \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DLLVM_OPTIMIZED_TABLEGEN=On \
+  -DLLVM_PARALLEL_LINK_JOBS=4 \
+  ../llvm-bolt-gadget-scanner/llvm
+   ```
+4. Now run ninja in the build directory as follows to build the
+   `llvm-bolt-gadget-scanner` binary and run the associated regression tests on
+   it:
+   ```
+   $ ninja llvm-bolt-gadget-scanner &&  ./bin/llvm-lit -v ../llvm-bolt-gadget-scanner/bolt/test/gadget-scanner/
+   ```
+
 ## Security properties for specific mitigations
 
 `llvm-bolt-gadget-scanner` implements a number of binary analyses. Each analysis
