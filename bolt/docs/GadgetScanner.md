@@ -49,13 +49,13 @@ for the security properties that each implemented mitigation should provide.
    ```
    $ cd build-bolt-rel
    $ cmake -G Ninja \
-  -DLLVM_ENABLE_PROJECTS="bolt;lld;clang" \
-  -DLLVM_ENABLE_ASSERTIONS=On \
-  -DLLVM_TARGETS_TO_BUILD="X86;AArch64;RISCV" \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DLLVM_OPTIMIZED_TABLEGEN=On \
-  -DLLVM_PARALLEL_LINK_JOBS=4 \
-  ../llvm-bolt-gadget-scanner/llvm
+      -DLLVM_ENABLE_PROJECTS="bolt;lld;clang" \
+      -DLLVM_ENABLE_ASSERTIONS=On \
+      -DLLVM_TARGETS_TO_BUILD="X86;AArch64;RISCV" \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DLLVM_OPTIMIZED_TABLEGEN=On \
+      -DLLVM_PARALLEL_LINK_JOBS=4 \
+      ../llvm-bolt-gadget-scanner/llvm
    ```
 4. Now run ninja in the build directory as follows to build the
    `llvm-bolt-gadget-scanner` binary and run the associated regression tests on
@@ -79,12 +79,34 @@ GadgetScanner options:
 
   --scanners=<value> - which gadget scanners to run, default is all
     =pacret          -   pac-ret
+    =stack-clash     -   stack-clash
     =all             -   all
 ```
 
 ### pac-ret
 
-TODO
+#### Formal security properties
+
+For every return instruction, check that the register used to read the return
+address from (this is typically `x30`):
+* is either not written to at all in the function, or
+* the last write to it was by an authenticating instruction (such as `AUTIASP`).
+
+#### What false positives or false negatives might arise?
+
+* After having called a `noreturn` function, compilers may not generate
+  authentication instructions. TODO: analyze whether this is fine.
+
+These false positives can be supressed by letting `llvm-bolt-gadget-scanner`
+know which functions should be considered `noreturn`, using the command line
+option `--noreturnfuncs`. It accepts a comma separated list of function names,
+for example `--noreturnfuncs="doesnotreturn/1,assert"`
+
+#### Further notes
+
+This analysis could quite easily be extended to PAuthABI analysis, verifying the
+same properties not just for every `ret` instruction, but also for all indirect
+control flow instructions, and data loads from vptrs.
 
 ### stack clash
 
