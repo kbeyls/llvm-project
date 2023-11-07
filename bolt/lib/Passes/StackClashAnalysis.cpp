@@ -373,7 +373,7 @@ void StackClashAnalysis::runOnFunctions(BinaryContext &BC) {
   for (BinaryFunction *BF : BC.getAllBinaryFunctions())
     if (BF->hasCFG()) {
       for (BinaryBasicBlock &BB : *BF) {
-        for (int64_t I = BB.size() - 1; I >= 0; --I) {
+        for (size_t I = 0; I < BB.size(); ++I) {
           MCInst &Inst = BB.getInstructionAtIndex(I);
           if (BC.MIB->hasAnnotation(Inst, gadgetAnnotationIndex)) {
             reportFoundGadget(BC, BB, Inst, gadgetAnnotationIndex);
