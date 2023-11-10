@@ -244,8 +244,11 @@ public:
     }
   }
 
-  bool getOffsetChange(int64_t &OffsetChange, const MCInst &Inst,
-                       MCPhysReg Reg) const override {
+  bool
+  getOffsetChange(int64_t &OffsetChange, const MCInst &Inst, MCPhysReg Reg,
+                  const SmallDenseMap<MCPhysReg, uint64_t, 1> &RegMaxValues,
+                  bool &isPreIndexOffsetChange) const override {
+    isPreIndexOffsetChange = false;
     unsigned Opc = Inst.getOpcode();
     if (std::optional<RegImmPair> RegImm =
             AArch64MCInstrInfo::isAddImmediate<MCInst, MCOperand>(Inst, Reg)) {
@@ -257,6 +260,7 @@ public:
       return true;
     } else if ((AArch64MCInstrInfo::isPreLdStOpcode(*Info, Opc) ||
                 AArch64MCInstrInfo::isPostLdStOpcode(*Info, Opc))) {
+      isPreIndexOffsetChange = AArch64MCInstrInfo::isPreLdStOpcode(*Info, Opc);
       int16_t BaseOpIdx = AArch64::getNamedOperandIdx(Opc, AArch64::OpName::Rn);
       assert(BaseOpIdx != -1); // We assume that every pre-/post-index LD/ST
       // does have an Rn field.
@@ -271,66 +275,68 @@ public:
                        AArch64InstrInfo::getMemScale(Opc);
       OffsetChange = Offset;
       return true;
+    } else {
+      // Check if this as an add with a Register that we know has a limited
+      // maximum possible value.
+      switch (Opc) {
+      case AArch64::SUBXrr:
+      case AArch64::SUBXrx64:
+        if (Inst.getOperand(0).getReg() != Reg ||
+            Inst.getOperand(1).getReg() != Reg)
+          return false;
+        if (Opc == AArch64::SUBXrx64 &&
+            AArch64_AM::getArithShiftValue(Inst.getOperand(3).getImm()) != 0)
+          return false;
+        {
+          MCPhysReg SubAmountReg = Inst.getOperand(2).getReg();
+          auto RegMaxValueI = RegMaxValues.find(SubAmountReg);
+          if (RegMaxValueI == RegMaxValues.end())
+            return false;
+
+          OffsetChange = -RegMaxValueI->second;
+          return true;
+        }
+        break;
+      }
     }
     return false;
   }
 
+  /// isStackOffset does a best-effort analysis to see if this is an instruction
+  /// accessing the stack.
+  /// \return true if \p Inst definitely accesses the stack, false otherwise.
+  /// \param[out] StackOffset returns the offset from the closest to the
+  ///                         top-of-stack this instruction accesses.
+  ///                         If this instruction changes the top-of-stack,
+  ///                         it returns the offset from the top-of-stack value
+  ///                         before the instruction starts executing.
   bool isStackAccess(const MCInst &Inst, int64_t &StackOffset) const override {
-    int64_t Imm = 0;
-    MCPhysReg OffsetReg = getNoRegister();
-    MCPhysReg BaseReg = getNoRegister();
-    switch (Inst.getOpcode()) {
-    // Ignore post and pre increment as we're
-    // looking for reads and writes that do not
-    // change the SP itself?
-    case AArch64::LDRBBroW:
-    case AArch64::LDRSBXroW:
-    case AArch64::LDRSBWroW:
-    case AArch64::LDRBBroX:
-    case AArch64::LDRSBXroX:
-    case AArch64::LDRSBWroX:
-    case AArch64::LDRHHroW:
-    case AArch64::LDRHHroX:
-    case AArch64::LDRSHWroW:
-    case AArch64::LDRSHWroX:
-    case AArch64::LDRSHXroW:
-    case AArch64::LDRSHXroX:
-    case AArch64::LDRWroW:
-    case AArch64::LDRWroX:
-    case AArch64::LDRXroW:
-    case AArch64::LDRXroX:
-      // Operand 0 = result reg
-      BaseReg = Inst.getOperand(1).getReg();
-      OffsetReg = Inst.getOperand(2).getReg();
-      break;
-    case AArch64::LDRBBui:
-    case AArch64::LDRSBWui:
-    case AArch64::LDRSBXui:
-    case AArch64::LDRHHui:
-    case AArch64::LDRSHWui:
-    case AArch64::LDRSHXui:
-    case AArch64::LDRWui:
-    case AArch64::LDRXui:
-      BaseReg = Inst.getOperand(1).getReg();
-      Imm = Inst.getOperand(2).getImm();
-      break;
-    }
-
-    // FIXME also handle FP load/store
-    // FIXME also handle stores
-    // FIXME also need to handle PAuth load/store?
-
-    // FIXME: do we need to deal with frame pointers, base pointers,
-    // etc?
-    if (BaseReg != getStackPointer())
+    const unsigned Opc = Inst.getOpcode();
+    TypeSize Scale(1, false);
+    unsigned Width;
+    int64_t MinOffset;
+    int64_t MaxOffset;
+    if (!AArch64InstrInfo::getMemOpInfo(Opc, Scale, Width, MinOffset, MaxOffset))
       return false;
-
-    // For now, we cannot handle register offsets.
-    if (OffsetReg != getNoRegister())
+    // Not handling scalable vectors yet.
+    if (Scale.isScalable())
       return false;
-
-    // FIXME: do I need to scale the immediate?
-    StackOffset = Imm;
+    int16_t BaseOpIdx = AArch64::getNamedOperandIdx(Opc, AArch64::OpName::Rn);
+    assert(BaseOpIdx != -1); // We assume that every LD/ST
+                             // does have an Rn field.
+    if (Inst.getOperand(BaseOpIdx).getReg() != getStackPointer())
+      return false;
+    int16_t OffsetOpIdx =
+        AArch64::getNamedOperandIdx(Opc, AArch64::OpName::offset);
+    // We can only handle immediate offsets.
+    if (OffsetOpIdx == -1 || !Inst.getOperand(OffsetOpIdx).isImm())
+      return false;
+    int64_t Offset = Inst.getOperand(OffsetOpIdx).getImm() *
+                     AArch64InstrInfo::getMemScale(Opc);
+    if (AArch64MCInstrInfo::isPostLdStOpcode(*Info, Opc))
+      StackOffset = 0;
+    else
+      StackOffset = Offset;
     return true;
   }
 
@@ -340,6 +346,28 @@ public:
 
   bool isADR(const MCInst &Inst) const override {
     return Inst.getOpcode() == AArch64::ADR;
+  }
+
+  bool isRetainOnlyLowerBitsInReg(const MCInst &Inst, MCPhysReg &Reg,
+                                  uint64_t &Mask) override {
+    bool Is32Bit = false;
+    switch (Inst.getOpcode()) {
+    default:
+      return false;
+    case AArch64::ANDSWri:
+    case AArch64::ANDWri:
+      Is32Bit = true;
+      LLVM_FALLTHROUGH;
+    case AArch64::ANDSXri:
+    case AArch64::ANDXri:
+      uint64_t MaskValue = AArch64_AM::decodeLogicalImmediate(
+          Inst.getOperand(2).getImm(), Is32Bit ? 32 : 64);
+      if (!isPowerOf2_64(MaskValue + 1) && MaskValue != 0)
+        return false;
+      Reg = Inst.getOperand(0).getReg();
+      Mask = MaskValue;
+      return true;
+    }
   }
 
   bool isAddXri(const MCInst &Inst) const {

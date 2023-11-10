@@ -15,6 +15,7 @@
 #include "bolt/Passes/StackClashAnalysis.h"
 #include "bolt/Core/ParallelUtilities.h"
 #include "bolt/Passes/DataflowAnalysis.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/Support/Format.h"
 
@@ -33,6 +34,7 @@ namespace {
 // To be able to compute whether always an access happens on every stack page
 // as the stack grows, at least the following (sub-)analyses are needed:
 //
+// FIXME: update the description below.
 // 1. Track which register contain a constant value (as they often are used
 //    to adjust the stack pointer).
 // 2. Track where the stack pointer gets adjusted to grow the stack, and if
@@ -54,60 +56,82 @@ namespace {
 // example. Therefore, implement (2), (3), (4) and (a).
 
 struct State {
-  // The different states to track are:
-  // State 1: everything fine: all newly allocated stack pages have been
-  // accessed. State 2: there are newly allocated stack pages, not yet accessed.
-  // Indicate which
-  //          newly allocated pages have and which ones have not been accessed.
-  // Attempt 1 to store this state: "simply" efficiently record which pages
-  // (described in terms of the current SP value) have not been accessed yet.
-  AccessedPagesT AccessedPages;
+  // Store the maximum possible offset to which the stack extends
+  // beyond the furthest probe seen.
+  MaxOffsetSinceLastProbeT MaxOffsetSinceLastProbe;
+  /// RegMaxValues stores registers that we know have a value in the
+  /// range [0, MaxValue-1].
+  SmallDenseMap<MCPhysReg, uint64_t, 1> RegMaxValues;
+  // LastStackGrowingInsts keep track of the set of most recent stack growing
+  // instructions on all possible paths. This is used to improve diagnostic
+  // messages.
   SmallSet<MCInstReference, 1> LastStackGrowingInsts;
-  // bool FlaggedForReporting = false;
-  State() {}
-#if 0
-  void copyWithoutReportingInfo(const State &S) {
-    AccessedPages = S.AccessedPages;
-  }
-#endif
-  // void flagNotAllPagesWritten(const BitVector &AccessedPages) {}
+  State() : MaxOffsetSinceLastProbe(0) {}
 
   State &operator&=(const State &StateIn) {
-    // We can only be sure if a page is accessed, if it's accessed on both
-    // paths reaching here.
-    if (StateIn.AccessedPages.size() > AccessedPages.size())
-      AccessedPages.resize(StateIn.AccessedPages.size());
-    AccessedPages &= StateIn.AccessedPages;
+    MaxOffsetSinceLastProbe &= StateIn.MaxOffsetSinceLastProbe;
+    SmallVector<MCPhysReg, 1> RegMaxValuesToRemove;
+    for (auto Reg2MaxValue : RegMaxValues) {
+      const MCPhysReg R(Reg2MaxValue.first);
+      auto SInReg2MaxValue = StateIn.RegMaxValues.find(R);
+      if (SInReg2MaxValue == StateIn.RegMaxValues.end())
+        RegMaxValuesToRemove.push_back(R);
+      else
+        Reg2MaxValue.second =
+            std::max(Reg2MaxValue.second, SInReg2MaxValue->second);
+    }
+    for (MCPhysReg R : RegMaxValuesToRemove)
+      RegMaxValues.erase(R);
+
     for (auto I : StateIn.LastStackGrowingInsts)
       LastStackGrowingInsts.insert(I);
     return *this;
   }
   bool operator==(const State &RHS) const {
-    return AccessedPages == RHS.AccessedPages;
+    return MaxOffsetSinceLastProbe == RHS.MaxOffsetSinceLastProbe &&
+           RegMaxValues == RHS.RegMaxValues;
   }
   bool operator!=(const State &RHS) const { return !((*this) == RHS); }
 };
 
-raw_ostream &operator<<(raw_ostream &OS, const State &S) {
-  OS << "stackclash-state<AP(" << S.AccessedPages << "), LastStackGrowingInsts("
-     << S.LastStackGrowingInsts.size() << ")>";
+raw_ostream &print_state(raw_ostream &OS, const State &S,
+                         const BinaryContext* BC= nullptr) {
+  OS << "stackclash-state<MaxOff(";
+  if (!S.MaxOffsetSinceLastProbe)
+    OS << "nonConst";
+  else
+    OS << *(S.MaxOffsetSinceLastProbe);
+  OS << "), RegMaxValues(";
+  for (auto Reg2MaxValue : S.RegMaxValues) {
+    if (!BC)
+      OS << "R" << Reg2MaxValue.first;
+    else {
+      RegStatePrinter RegStatePrinter(*BC);
+      BitVector BV(BC->MRI->getNumRegs(), false);
+      BV.set(Reg2MaxValue.first);
+      RegStatePrinter.print(OS, BV);
+    }
+    OS << ":" << Reg2MaxValue.second << ",";
+  }
+  OS << "), LastStackGrowingInsts(" << S.LastStackGrowingInsts.size() << ")>";
   return OS;
+}
+
+raw_ostream &operator<<(raw_ostream &OS, const State &S) {
+  return print_state(OS, S);
 }
 
 } // namespace
 
 class StackClashStatePrinter {
-public:
-  void print(raw_ostream &OS, const State &S) const;
-  explicit StackClashStatePrinter(const BinaryContext &BC) : BC(BC) {}
-
-private:
   const BinaryContext &BC;
-};
 
-void StackClashStatePrinter::print(raw_ostream &OS, const State &S) const {
-  OS << S;
-}
+public:
+  void print(raw_ostream &OS, const State &S) const {
+    print_state(OS, S, &BC);
+  }
+  explicit StackClashStatePrinter(const BinaryContext &BC) : BC(BC) {}
+};
 
 class StackClashDFAnalysis
     : public DataflowAnalysis<StackClashDFAnalysis, State, false /*Forward*/,
@@ -127,9 +151,6 @@ public:
 protected:
   const uint16_t NumRegs;
   BinaryFunction &BF;
-
-  // Assume 4K pages (for now). FIXME: make this configurable.
-  const int PAGESIZE = 4096;
 
   void preflight() {}
 
@@ -171,64 +192,97 @@ protected:
       dbgs() << ")\n";
     });
 
+    MCPhysReg MaxValueReg = BC.MIB->getNoRegister();
+    uint64_t MaxValueMask;
+    if (BC.MIB->isRetainOnlyLowerBitsInReg(Point, MaxValueReg, MaxValueMask)) {
+      LLVM_DEBUG({
+        dbgs() << "  Found inst setting upper bound on value in Reg: ";
+        BC.printInstruction(dbgs(), Point);
+        dbgs() << "    MaxValueReg: " << MaxValueReg
+               << "; MaxValueMask: " << MaxValueMask << "\n";
+      });
+      const uint64_t MaxValueInReg = MaxValueMask;
+      auto MaxValueForRegI = Next.RegMaxValues.find(MaxValueReg);
+      if (MaxValueForRegI == Next.RegMaxValues.end())
+        Next.RegMaxValues[MaxValueReg] = MaxValueInReg;
+      else {
+        MaxValueForRegI->second =
+            std::min(MaxValueForRegI->second, MaxValueInReg);
+      }
+    }
+    // FIXME properly handle register aliases below. E.g. a call
+    // should reset call-clobbered registers?
+#if 0
+    const MCInstrDesc &InstInfo = BC.MIB->Info->get(Point.getOpcode());
+    for (MCPhysReg ImplicitDef : InstInfo.implicit_defs())
+      if (ImplicitDef != MaxValueReg)
+        Next.RegMaxValues.erase(ImplicitDef);
+#endif
+    for (const MCOperand &Operand : BC.MIB->defOperands(Point)) {
+      assert(Operand.isReg());
+      if (Operand.getReg() != MaxValueReg)
+        Next.RegMaxValues.erase(Operand.getReg());
+    }
+
+    if (!Next.MaxOffsetSinceLastProbe)
+      return Next;
+
     const MCPhysReg SP = BC.MIB->getStackPointer();
+    bool IsPreIndexOffsetChange = false;
+    int64_t StackAccessOffset;
+    bool IsStackAccess;
+
+    if ((IsStackAccess = BC.MIB->isStackAccess(Point, StackAccessOffset))) {
+      Next.MaxOffsetSinceLastProbe =
+          std::min(*Next.MaxOffsetSinceLastProbe, StackAccessOffset);
+      LLVM_DEBUG({
+        dbgs() << "  Found Stack Access inst: ";
+        BC.printInstruction(dbgs(), Point);
+        dbgs() << "    Offset: " << StackAccessOffset
+               << "; new MaxOffsetSinceLastProbe: "
+               << *Next.MaxOffsetSinceLastProbe << "\n";
+      });
+    }
 
     if (BC.MIB->hasDefOfPhysReg(Point, SP)) {
-#if 0
-      // The SP value changes. Therefore, check that all new pages allocated
-      // since the previous SP value change have been accessed. If not, mark
-      // this location as needing a diagnostic to be reported.
-      if (!Cur.AccessedPages.all())
-        Next.flagNotAllPagesWritten(Cur.AccessedPages);
-#endif
-
+      int64_t OffsetChange;
       // Next, validate that validate that we can track by how much the SP
       // value changes. This should be a constant amount.
       // Else, if we cannot determine the fixed offset, mark this location as
       // needing a report that this potentially changes the SP value by a
       // non-constant amount, and hence violates stack-clash properties.
-      int64_t OffsetChange;
-      if (BC.MIB->getOffsetChange(
-              OffsetChange, Point, SP
-              /*TODO: something to communicate constant values in register*/)) {
+      Next.LastStackGrowingInsts.insert(MCInstInBBReference::get(&Point, BF));
+      if (BC.MIB->getOffsetChange(OffsetChange, Point, SP, Cur.RegMaxValues,
+                                  IsPreIndexOffsetChange)) {
         // Start tracking that we need accesses to the number of new pages on
         // the stack.
-        int NrPages = 0;
-        // Assume a down-growing stack
         if (OffsetChange < 0)
-          // FIXME: verify that rounding down is correct. Add test case.
-          NrPages = (-OffsetChange + 1) / PAGESIZE + 1;
+          Next.MaxOffsetSinceLastProbe =
+              *Next.MaxOffsetSinceLastProbe - OffsetChange;
+          // FIXME: add test case for this if test.
+#if 0
+        if (IsPreIndexOffsetChange)
+          Next.MaxOffsetSinceLastProbe =
+              *Next.MaxOffsetSinceLastProbe - StackAccessOffset;
+#endif
         LLVM_DEBUG({
           dbgs() << "  Found SP Offset change: ";
           BC.printInstruction(dbgs(), Point);
           dbgs() << "    OffsetChange: " << OffsetChange
-                 << "; NrPages: " << NrPages << "\n";
+                 << "; new MaxOffsetSinceLastProbe: "
+                 << *Next.MaxOffsetSinceLastProbe
+                 << "; IsStackAccess:" << IsStackAccess
+                 << "; StackAccessOffset: " << StackAccessOffset << "\n";
         });
-        Next.AccessedPages = AccessedPagesT(NrPages, false);
-        Next.LastStackGrowingInsts.insert(MCInstInBBReference::get(&Point, BF));
+        assert(!IsPreIndexOffsetChange || IsStackAccess);
+        assert(*Next.MaxOffsetSinceLastProbe >= 0);
       } else {
-#if 0
-        // mark to report that this may be an SP change that is not a constant
-        // amount.
-        Next.flagNonConstantSPChange();
-#endif
+        Next.MaxOffsetSinceLastProbe.reset();
+        LLVM_DEBUG({
+          dbgs() << "  Found non-const SP Offset change: ";
+          BC.printInstruction(dbgs(), Point);
+        });
       }
-    }
-
-    int64_t StackOffset;
-    if (BC.MIB->isStackAccess(Point, StackOffset)) {
-      assert(StackOffset >= 0);
-      const int pageNr = StackOffset / PAGESIZE;
-      LLVM_DEBUG({
-        dbgs() << "  Found Stack Access inst: ";
-        BC.printInstruction(dbgs(), Point);
-        dbgs() << "    Offset: " << StackOffset << "; pageNr: " << pageNr
-               << "\n";
-      });
-      // FIXME: this shouldn't be an assert - incorrect codegen could trigger
-      // this.
-      assert((size_t)pageNr < Next.AccessedPages.size());
-      Next.AccessedPages.set(pageNr);
     }
 
     return Next;
@@ -240,6 +294,9 @@ protected:
 
 public:
 };
+
+// Assume 4K pages (for now). FIXME: make this configurable.
+const int PAGESIZE = 64 * 1024;
 
 void StackClashAnalysis::runOnFunction(
     BinaryFunction &BF, MCPlusBuilder::AllocatorIdTy AllocatorId) {
@@ -258,46 +315,52 @@ void StackClashAnalysis::runOnFunction(
     // Now iterate over the basic blocks to indicate where something needs
     // to be reported.
     for (BinaryBasicBlock &BB : BF) {
+      bool TooLargeOffsetAlreadyReported = false;
       for (size_t I = 0; I < BB.size(); ++I) {
         MCInst &Inst = BB.getInstructionAtIndex(I);
         SmallVector<StackClashIssue, 2> SCIAnnotations;
-        if (BC.MIB->hasDefOfPhysReg(Inst, SP)) {
-          // The SP value changes. Therefore, check that all new pages allocated
-          // since the previous SP value change have been accessed. If not, mark
-          // this location as needing a diagnostic to be reported.
-          State S = *SCDFA.getStateBefore(Inst);
-          if (!S.AccessedPages.AllWrittenIgnoringClosestPageToSP()) {
-            LLVM_DEBUG({
-              dbgs()
-                  << "  Found SP Offset change with not all pages accessed: ";
-              BC.printInstruction(dbgs(), Inst);
-              dbgs() << "    AccessedPages state: " << S << "\n";
-            });
-            // Add an annotation to report
-            SCIAnnotations.push_back(
-                StackClashIssue::createNotAllPagesWritten(
-                    S.AccessedPages, S.LastStackGrowingInsts)); //);
-          }
 
-          // Next, validate that we can track by how much the SP
-          // value changes. This should be a constant amount.
-          // Else, if we cannot determine the fixed offset, mark this location
-          // as needing a report that this potentially changes the SP value by a
-          // non-constant amount, and hence violates stack-clash properties.
-          int64_t OffsetChange;
-          if (!BC.MIB->getOffsetChange(
-              OffsetChange, Inst, SP
-              /*TODO: something to communicate constant values in register*/)) {
-            // mark to report that this may be an SP change that is not a
-            // constant amount.
-            LLVM_DEBUG({
-              dbgs() << "  Found SP Offset change that may not be a constant "
-                        "amount: ";
-              BC.printInstruction(dbgs(), Inst);
-            });
-            SCIAnnotations.push_back(
-                StackClashIssue::createNonConstantSPChangeData());
-          }
+        // Check if MaxOffsetSinceLastProbe grows larger than a page; report
+        // only once per basic block.
+        State S = *SCDFA.getStateBefore(Inst);
+        // FIXME: think long and hard about the justification to allow
+        // the latest stack probe to (temporarily) at most be 2 page sizes
+        // worth from the top of stack. At the moment, I think this is
+        // necessary, as right after the stack grows by a new page, the
+        // last probe is necessarily at least 1 page removed from the current
+        // new top-of-stack.
+        if (!TooLargeOffsetAlreadyReported && S.MaxOffsetSinceLastProbe &&
+            *S.MaxOffsetSinceLastProbe >= 2*PAGESIZE) {
+          TooLargeOffsetAlreadyReported = true;
+          LLVM_DEBUG({
+            dbgs() << "  Found SP Offset change with not all pages accessed: ";
+            BC.printInstruction(dbgs(), Inst);
+            dbgs() << "    State: " << S << "\n";
+          });
+          // Add an annotation to report
+          SCIAnnotations.push_back(StackClashIssue::createNotAllPagesWritten(
+              *S.MaxOffsetSinceLastProbe, S.LastStackGrowingInsts));
+        }
+
+        // Next, validate that we can track by how much the SP
+        // value changes. This should be a constant amount.
+        // Else, if we cannot determine the fixed offset, mark this location
+        // as needing a report that this potentially changes the SP value by a
+        // non-constant amount, and hence violates stack-clash properties.
+        int64_t OffsetChange;
+        bool tmp;
+        if (BC.MIB->hasDefOfPhysReg(Inst, SP) &&
+            !BC.MIB->getOffsetChange(OffsetChange, Inst, SP, S.RegMaxValues,
+                                     tmp)) {
+          // mark to report that this may be an SP change that is not a
+          // constant amount.
+          LLVM_DEBUG({
+            dbgs() << "  Found SP Offset change that may not be a constant "
+                      "amount: ";
+            BC.printInstruction(dbgs(), Inst);
+          });
+          SCIAnnotations.push_back(
+              StackClashIssue::createNonConstantSPChangeData());
         }
         // merge and add annotations
         if (SCIAnnotations.size() == 0)
@@ -321,8 +384,7 @@ void reportFoundGadget(const BinaryContext &BC, const BinaryBasicBlock &BB,
   auto BFName = BF->getPrintName();
   if (SCI.NotAllPagesWritten) {
     outs() << "\nGS-STACKCLASH: large SP increase without necessary accesses "
-              "found in "
-              "function "
+              "found in function "
            << BFName;
     // outs() << ", at address " << llvm::format("%x", Inst.getAddress()) <<
     // "\n";
@@ -332,15 +394,14 @@ void reportFoundGadget(const BinaryContext &BC, const BinaryBasicBlock &BB,
       outs() << "  * ";
       BC.printInstruction(outs(), MCInstRef, MCInstRef.getAddress());
     }
-    outs() << "  This instruction changes the SP next, while not all pages "
-              "allocated "
-           << "by the previous instructions have been accessed since:\n  * ";
+    outs() << "  This instruction changes the SP next, making the "
+              "closest-to-top-of-stack "
+              "access happen at an offset of "
+           << *SCI.MaxOffsetSinceLastProbe
+           << ", which is larger than the assumed page size (" << PAGESIZE
+           << "):\n  * ";
     MCInstInBBReference NextSPInst = MCInstInBBReference::get(&Inst, *BF);
     BC.printInstruction(outs(), NextSPInst, NextSPInst.getAddress());
-    int64_t OffsetChange;
-    BC.MIB->getOffsetChange(OffsetChange, Inst, BC.MIB->getStackPointer());
-    outs() << "  Pages seen as accessed in between the SP changes: "
-           << SCI.AccessedPages << "\n";
   }
   if (SCI.NonConstantSPChange) {
     outs() << "\nGS-STACKCLASH: non-constant SP change found in function "

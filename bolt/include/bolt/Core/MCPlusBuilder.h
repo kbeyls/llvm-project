@@ -645,6 +645,12 @@ public:
     return false;
   }
 
+  virtual bool isRetainOnlyLowerBitsInReg(const MCInst &Inst, MCPhysReg &Reg,
+                                          uint64_t &Mask) {
+    llvm_unreachable("not implemented");
+    return false;
+  }
+
   virtual void getADRReg(const MCInst &Inst, MCPhysReg &RegName) const {
     llvm_unreachable("not implemented");
   }
@@ -1035,11 +1041,14 @@ public:
     return false;
   }
 
-  /// Identify by which constant value \p Inst changes the value of register
-  /// \p Reg.
+  /// Identify by at most which constant value \p Inst changes the value
+  /// of register \p Reg.
   /// Returns true if such a change was identified, false otherwise.
-  virtual bool getOffsetChange(int64_t &OffsetChange, const MCInst &Inst,
-                               MCPhysReg Reg) const {
+  virtual bool
+  getOffsetChange(int64_t &OffsetChange, const MCInst &Inst, MCPhysReg Reg,
+
+                  const SmallDenseMap<MCPhysReg, uint64_t, 1> &RegMaxValues,
+                  bool &isPreIndexOffsetChange) const {
     llvm_unreachable("not implemented");
     return false;
   }

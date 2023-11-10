@@ -110,6 +110,22 @@ control flow instructions, and data loads from vptrs.
 
 ### stack clash
 
+#### Background info
+
+See
+[the key principles for code generation to prevent a stack clash attack](https://developers.redhat.com/blog/2020/05/22/stack-clash-mitigation-in-gcc-part-3),
+as per the RedHat blog post that introduces the stack clash protection idea:
+
+* No single allocation can be greater than a page. The compiler must translate
+  large requests into a series of page- or smaller-sized requests.
+* As pages are allocated, emit instructions to probe them. (Let's call these
+  explicit probes.)
+* A series of sub-page allocations without intervening probes can not allocate
+  more than a page in total.
+
+
+
+#### What properties does llvm-bolt-gadget-scanner aim to look for?
 * Properties
   * Each basic block can only change SP by a constant amount? (for variable
     amounts, the compiler needs to produce max page-sized updates and do an

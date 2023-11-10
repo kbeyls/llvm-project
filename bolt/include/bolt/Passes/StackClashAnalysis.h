@@ -15,42 +15,31 @@
 #include "bolt/Passes/BinaryPasses.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/Support/Errc.h"
+#include <algorithm>
 #include <optional>
 #include <queue>
 
 namespace llvm {
 namespace bolt {
 
-class AccessedPagesT : public BitVector {
-public:
-  AccessedPagesT() : BitVector() {}
-  AccessedPagesT &operator=(const BitVector &BV) {
-    BitVector::operator=(BV);
-    return (*this);
-  }
-  AccessedPagesT(unsigned size, bool InitVal) : BitVector(size, InitVal) {}
-  bool AllWrittenIgnoringClosestPageToSP() const {
-    if (size() == 0)
-      return true;
-    // Mask off the first bit to ignore it.
-    BitVector Mask(size(), false);
-    Mask.set(0);
-    Mask |= *this;
-    return Mask.all();
-  }
-};
+typedef std::optional<int64_t> MaxOffsetSinceLastProbeT;
 
-inline raw_ostream &operator<<(raw_ostream &OS, const AccessedPagesT &AP) {
-  OS << AP.size() << ":";
-  for (unsigned I = 0; I < AP.size(); ++I)
-    OS << (AP[I] ? "1" : "0");
-  return OS;
+inline
+MaxOffsetSinceLastProbeT &operator&=(MaxOffsetSinceLastProbeT &LHS,
+                                     const MaxOffsetSinceLastProbeT &RHS) {
+  if (LHS && RHS)
+    LHS = std::max(*LHS, *RHS);
+  else
+    LHS.reset();
+  return LHS;
 }
+
 struct StackClashIssue {
   bool NotAllPagesWritten;
   bool NonConstantSPChange;
   // The following fields are only used in case NotAllPagesWritten is true.
-  AccessedPagesT AccessedPages;
+  MaxOffsetSinceLastProbeT
+      MaxOffsetSinceLastProbe; //  AccessedPagesT AccessedPages;
   SmallSet<MCInstReference, 1> LastStackGrowingInsts;
 
 protected:
@@ -61,15 +50,16 @@ public:
     StackClashIssue SCI;
     SCI.NotAllPagesWritten = false;
     SCI.NonConstantSPChange = false;
+    SCI.MaxOffsetSinceLastProbe = 0;
     return SCI;
   }
   static StackClashIssue createNotAllPagesWritten(
-      const BitVector &AccessedPages,
+      const MaxOffsetSinceLastProbeT MaxOffsetSinceLastProbe,
       const SmallSet<MCInstReference, 1> &LastStackGrowingInsts) {
     StackClashIssue SCI;
     SCI.NotAllPagesWritten = true;
     SCI.NonConstantSPChange = false;
-    SCI.AccessedPages = AccessedPages;
+    SCI.MaxOffsetSinceLastProbe = MaxOffsetSinceLastProbe;
     SCI.LastStackGrowingInsts = LastStackGrowingInsts;
     return SCI;
   }
@@ -82,35 +72,19 @@ public:
   bool operator==(const StackClashIssue &RHS) const {
     return NotAllPagesWritten == RHS.NotAllPagesWritten &&
            NonConstantSPChange == RHS.NonConstantSPChange &&
-           AccessedPages == RHS.AccessedPages;
+           MaxOffsetSinceLastProbe == RHS.MaxOffsetSinceLastProbe;
   }
   StackClashIssue &operator|=(const StackClashIssue &RHS) {
     NonConstantSPChange |= RHS.NonConstantSPChange;
     if (RHS.NotAllPagesWritten) {
       NotAllPagesWritten = true;
-      // FIXME: correctly merge AccessedPages
-      AccessedPages |= RHS.AccessedPages;
-      for(MCInstReference R: RHS.LastStackGrowingInsts)
+      MaxOffsetSinceLastProbe &= RHS.MaxOffsetSinceLastProbe;
+      for (MCInstReference R : RHS.LastStackGrowingInsts)
         LastStackGrowingInsts.insert(R);
     }
     return *this;
   }
 };
-
-#if 0
-struct NotAllPagesWritten : public StackClashIssue {
-  BitVector AccessedPages;
-  NotAllPagesWritten(BitVector AccessedPages) : AccessedPages(AccessedPages) {}
-  bool operator==(const NotAllPagesWritten &RHS) const {
-    return AccessedPages == RHS.AccessedPages;
-  }
-};
-
-struct NotConstantSpChange : public StackClashIssue {
-  NotConstantSpChange() {}
-  bool operator==(const NotConstantSpChange &RHS) const { return true; }
-};
-#endif
 
 raw_ostream &operator<<(raw_ostream &OS, const StackClashIssue &G);
 
