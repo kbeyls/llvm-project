@@ -245,9 +245,13 @@ public:
   }
 
   bool
-  getOffsetChange(int64_t &OffsetChange, const MCInst &Inst, MCPhysReg Reg,
+  getOffsetChange(std::optional<int64_t> &OffsetChange,
+                  std::optional<int64_t> &MaxOffsetChange, const MCInst &Inst,
+                  MCPhysReg Reg,
                   const SmallDenseMap<MCPhysReg, uint64_t, 1> &RegMaxValues,
                   bool &isPreIndexOffsetChange) const override {
+    OffsetChange = std::nullopt;
+    MaxOffsetChange = std::nullopt;
     isPreIndexOffsetChange = false;
     unsigned Opc = Inst.getOpcode();
     if (std::optional<RegImmPair> RegImm =
@@ -256,7 +260,7 @@ public:
       if (SrcReg != Reg)
         return false;
       int64_t Offset = RegImm->Imm;
-      OffsetChange = Offset;
+      MaxOffsetChange = OffsetChange = Offset;
       return true;
     } else if ((AArch64MCInstrInfo::isPreLdStOpcode(*Info, Opc) ||
                 AArch64MCInstrInfo::isPostLdStOpcode(*Info, Opc))) {
@@ -273,7 +277,7 @@ public:
         return false;
       int64_t Offset = Inst.getOperand(OffsetOpIdx).getImm() *
                        AArch64InstrInfo::getMemScale(Opc);
-      OffsetChange = Offset;
+      MaxOffsetChange = OffsetChange = Offset;
       return true;
     } else {
       // Check if this as an add with a Register that we know has a limited
@@ -293,7 +297,7 @@ public:
           if (RegMaxValueI == RegMaxValues.end())
             return false;
 
-          OffsetChange = -RegMaxValueI->second;
+          MaxOffsetChange = -RegMaxValueI->second;
           return true;
         }
         break;
@@ -527,15 +531,26 @@ public:
 
   bool isRegToRegMove(const MCInst &Inst, MCPhysReg &From,
                       MCPhysReg &To) const override {
-    if (Inst.getOpcode() != AArch64::ORRXrs)
+    switch (Inst.getOpcode()) {
+    case AArch64::ORRXrs:
       return false;
-    if (Inst.getOperand(1).getReg() != AArch64::XZR)
+      if (Inst.getOperand(1).getReg() != AArch64::XZR)
+        return false;
+      if (Inst.getOperand(3).getImm() != 0)
+        return false;
+      From = Inst.getOperand(2).getReg();
+      To = Inst.getOperand(0).getReg();
+      return true;
+      break;
+    case AArch64::ADDXri:
+      if (Inst.getOperand(2).getImm() != 0)
+        return false;
+      From = Inst.getOperand(1).getReg();
+      To = Inst.getOperand(0).getReg();
+      return true;
+    default:
       return false;
-    if (Inst.getOperand(3).getImm() != 0)
-      return false;
-    From = Inst.getOperand(2).getReg();
-    To = Inst.getOperand(0).getReg();
-    return true;
+    }
   }
 
   bool isIndirectCall(const MCInst &Inst) const override {

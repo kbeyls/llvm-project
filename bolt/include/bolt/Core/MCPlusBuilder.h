@@ -1045,8 +1045,9 @@ public:
   /// of register \p Reg.
   /// Returns true if such a change was identified, false otherwise.
   virtual bool
-  getOffsetChange(int64_t &OffsetChange, const MCInst &Inst, MCPhysReg Reg,
-
+  getOffsetChange(std::optional<int64_t> &OffsetChange,
+                  std::optional<int64_t> &MaxOffsetChange, const MCInst &Inst,
+                  MCPhysReg Reg,
                   const SmallDenseMap<MCPhysReg, uint64_t, 1> &RegMaxValues,
                   bool &isPreIndexOffsetChange) const {
     llvm_unreachable("not implemented");

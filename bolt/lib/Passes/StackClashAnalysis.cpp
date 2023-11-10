@@ -62,11 +62,19 @@ struct State {
   /// RegMaxValues stores registers that we know have a value in the
   /// range [0, MaxValue-1].
   SmallDenseMap<MCPhysReg, uint64_t, 1> RegMaxValues;
+  /// RegsFixedOffsetFromOrigSP contains the registers that contain the value
+  /// of the original SP at the function start, or a fixed offset from it.
+  /// This is especially useful to recognize frame pointers and the fact
+  /// that epilogues can restore stack pointers from frame pointer values.
+  std::optional<SmallSet<MCPhysReg, 2>> RegsFixedOffsetFromOrigSP;
+  /// SPFixedOffsetFromOrig indicates whether the current SP value is
+  /// a constant fixed offset from the SP value at the function start.
+  std::optional<int64_t> SPFixedOffsetFromOrig;
   // LastStackGrowingInsts keep track of the set of most recent stack growing
   // instructions on all possible paths. This is used to improve diagnostic
   // messages.
   SmallSet<MCInstReference, 1> LastStackGrowingInsts;
-  State() : MaxOffsetSinceLastProbe(0) {}
+  State() : MaxOffsetSinceLastProbe(0), SPFixedOffsetFromOrig(0) {}
 
   State &operator&=(const State &StateIn) {
     MaxOffsetSinceLastProbe &= StateIn.MaxOffsetSinceLastProbe;
@@ -83,19 +91,49 @@ struct State {
     for (MCPhysReg R : RegMaxValuesToRemove)
       RegMaxValues.erase(R);
 
+    if (!SPFixedOffsetFromOrig || !StateIn.SPFixedOffsetFromOrig)
+      SPFixedOffsetFromOrig.reset();
+    else if (*SPFixedOffsetFromOrig != *StateIn.SPFixedOffsetFromOrig)
+      SPFixedOffsetFromOrig.reset();
+
+    if (StateIn.RegsFixedOffsetFromOrigSP && RegsFixedOffsetFromOrigSP) {
+      SmallVector<MCPhysReg, 2> RegsToRemove;
+      for (MCPhysReg R : *RegsFixedOffsetFromOrigSP)
+        if (!StateIn.RegsFixedOffsetFromOrigSP->contains(R))
+          RegsToRemove.push_back(R);
+      for (MCPhysReg R : RegsToRemove)
+        RegsFixedOffsetFromOrigSP->erase(R);
+    } else if (StateIn.RegsFixedOffsetFromOrigSP &&
+               !RegsFixedOffsetFromOrigSP) {
+      RegsFixedOffsetFromOrigSP = StateIn.RegsFixedOffsetFromOrigSP;
+    }
+
     for (auto I : StateIn.LastStackGrowingInsts)
       LastStackGrowingInsts.insert(I);
     return *this;
   }
   bool operator==(const State &RHS) const {
     return MaxOffsetSinceLastProbe == RHS.MaxOffsetSinceLastProbe &&
-           RegMaxValues == RHS.RegMaxValues;
+           RegMaxValues == RHS.RegMaxValues &&
+           SPFixedOffsetFromOrig == RHS.SPFixedOffsetFromOrig &&
+           RegsFixedOffsetFromOrigSP == RHS.RegsFixedOffsetFromOrigSP;
   }
   bool operator!=(const State &RHS) const { return !((*this) == RHS); }
 };
 
+void print_reg(raw_ostream &OS, MCPhysReg Reg, const BinaryContext *BC) {
+  if (!BC)
+    OS << "R" << Reg;
+  else {
+    RegStatePrinter RegStatePrinter(*BC);
+    BitVector BV(BC->MRI->getNumRegs(), false);
+    BV.set(Reg);
+    RegStatePrinter.print(OS, BV);
+  }
+}
+
 raw_ostream &print_state(raw_ostream &OS, const State &S,
-                         const BinaryContext* BC= nullptr) {
+                         const BinaryContext *BC = nullptr) {
   OS << "stackclash-state<MaxOff(";
   if (!S.MaxOffsetSinceLastProbe)
     OS << "nonConst";
@@ -103,17 +141,23 @@ raw_ostream &print_state(raw_ostream &OS, const State &S,
     OS << *(S.MaxOffsetSinceLastProbe);
   OS << "), RegMaxValues(";
   for (auto Reg2MaxValue : S.RegMaxValues) {
-    if (!BC)
-      OS << "R" << Reg2MaxValue.first;
-    else {
-      RegStatePrinter RegStatePrinter(*BC);
-      BitVector BV(BC->MRI->getNumRegs(), false);
-      BV.set(Reg2MaxValue.first);
-      RegStatePrinter.print(OS, BV);
-    }
+    print_reg(OS, Reg2MaxValue.first, BC);
     OS << ":" << Reg2MaxValue.second << ",";
   }
-  OS << "), LastStackGrowingInsts(" << S.LastStackGrowingInsts.size() << ")>";
+  OS << "),";
+  OS << "SPFixedOffsetFromOrig:" << S.SPFixedOffsetFromOrig << ",";
+  OS << "RegsFixedOffsetFromOrigSP:";
+  if (S.RegsFixedOffsetFromOrigSP) {
+    OS << "(";
+    for (auto Reg : *S.RegsFixedOffsetFromOrigSP) {
+      print_reg(OS, Reg, BC);
+      OS << ",";
+    }
+    OS << ")";
+  } else
+    OS << "None";
+  OS << ",";
+  OS << "LastStackGrowingInsts(" << S.LastStackGrowingInsts.size() << ")>";
   return OS;
 }
 
@@ -127,9 +171,7 @@ class StackClashStatePrinter {
   const BinaryContext &BC;
 
 public:
-  void print(raw_ostream &OS, const State &S) const {
-    print_state(OS, S, &BC);
-  }
+  void print(raw_ostream &OS, const State &S) const { print_state(OS, S, &BC); }
   explicit StackClashStatePrinter(const BinaryContext &BC) : BC(BC) {}
 };
 
@@ -244,21 +286,42 @@ protected:
       });
     }
 
+    if (!Next.RegsFixedOffsetFromOrigSP)
+      Next.RegsFixedOffsetFromOrigSP = SmallSet<MCPhysReg, 2>();
+    MCPhysReg FixedOffsetRegJustSet = BC.MIB->getNoRegister();
+    MCPhysReg FromReg, ToReg;
+    if (BC.MIB->isRegToRegMove(Point, FromReg, ToReg)) {
+      if (FromReg == SP && Cur.SPFixedOffsetFromOrig) {
+        Next.RegsFixedOffsetFromOrigSP->insert(ToReg);
+        FixedOffsetRegJustSet = ToReg;
+      }
+    }
+    for (const MCOperand &Operand : BC.MIB->defOperands(Point)) {
+      assert(Operand.isReg());
+      if (Operand.getReg() != FixedOffsetRegJustSet)
+        Next.RegsFixedOffsetFromOrigSP->erase(Operand.getReg());
+    }
+
     if (BC.MIB->hasDefOfPhysReg(Point, SP)) {
-      int64_t OffsetChange;
+      std::optional<int64_t> OffsetChange;
+      std::optional<int64_t> MaxOffsetChange;
       // Next, validate that validate that we can track by how much the SP
       // value changes. This should be a constant amount.
       // Else, if we cannot determine the fixed offset, mark this location as
       // needing a report that this potentially changes the SP value by a
       // non-constant amount, and hence violates stack-clash properties.
       Next.LastStackGrowingInsts.insert(MCInstInBBReference::get(&Point, BF));
-      if (BC.MIB->getOffsetChange(OffsetChange, Point, SP, Cur.RegMaxValues,
-                                  IsPreIndexOffsetChange)) {
+      if (BC.MIB->getOffsetChange(OffsetChange, MaxOffsetChange, Point, SP,
+                                  Cur.RegMaxValues, IsPreIndexOffsetChange)) {
         // Start tracking that we need accesses to the number of new pages on
         // the stack.
-        if (OffsetChange < 0)
+        assert(MaxOffsetChange);
+        if (*MaxOffsetChange < 0)
           Next.MaxOffsetSinceLastProbe =
-              *Next.MaxOffsetSinceLastProbe - OffsetChange;
+              *Next.MaxOffsetSinceLastProbe - *MaxOffsetChange;
+        if (OffsetChange && Next.SPFixedOffsetFromOrig)
+          Next.SPFixedOffsetFromOrig =
+              *Next.SPFixedOffsetFromOrig + *OffsetChange;
           // FIXME: add test case for this if test.
 #if 0
         if (IsPreIndexOffsetChange)
@@ -269,8 +332,11 @@ protected:
           dbgs() << "  Found SP Offset change: ";
           BC.printInstruction(dbgs(), Point);
           dbgs() << "    OffsetChange: " << OffsetChange
+                 << "; MaxOffsetChange: " << MaxOffsetChange
                  << "; new MaxOffsetSinceLastProbe: "
                  << *Next.MaxOffsetSinceLastProbe
+                 << "; new SPFixedOffsetFromOrig: "
+                 << *Next.SPFixedOffsetFromOrig
                  << "; IsStackAccess:" << IsStackAccess
                  << "; StackAccessOffset: " << StackAccessOffset << "\n";
         });
@@ -278,6 +344,7 @@ protected:
         assert(*Next.MaxOffsetSinceLastProbe >= 0);
       } else {
         Next.MaxOffsetSinceLastProbe.reset();
+        Next.SPFixedOffsetFromOrig.reset();
         LLVM_DEBUG({
           dbgs() << "  Found non-const SP Offset change: ";
           BC.printInstruction(dbgs(), Point);
@@ -330,7 +397,7 @@ void StackClashAnalysis::runOnFunction(
         // last probe is necessarily at least 1 page removed from the current
         // new top-of-stack.
         if (!TooLargeOffsetAlreadyReported && S.MaxOffsetSinceLastProbe &&
-            *S.MaxOffsetSinceLastProbe >= 2*PAGESIZE) {
+            *S.MaxOffsetSinceLastProbe >= 2 * PAGESIZE) {
           TooLargeOffsetAlreadyReported = true;
           LLVM_DEBUG({
             dbgs() << "  Found SP Offset change with not all pages accessed: ";
@@ -347,20 +414,34 @@ void StackClashAnalysis::runOnFunction(
         // Else, if we cannot determine the fixed offset, mark this location
         // as needing a report that this potentially changes the SP value by a
         // non-constant amount, and hence violates stack-clash properties.
-        int64_t OffsetChange;
+        std::optional<int64_t> OffsetChange;
+        std::optional<int64_t> MaxOffsetChange;
         bool tmp;
         if (BC.MIB->hasDefOfPhysReg(Inst, SP) &&
-            !BC.MIB->getOffsetChange(OffsetChange, Inst, SP, S.RegMaxValues,
-                                     tmp)) {
-          // mark to report that this may be an SP change that is not a
-          // constant amount.
-          LLVM_DEBUG({
-            dbgs() << "  Found SP Offset change that may not be a constant "
-                      "amount: ";
-            BC.printInstruction(dbgs(), Inst);
-          });
-          SCIAnnotations.push_back(
-              StackClashIssue::createNonConstantSPChangeData());
+            !BC.MIB->getOffsetChange(OffsetChange, MaxOffsetChange, Inst, SP,
+                                     S.RegMaxValues, tmp)) {
+          // If this is a register move from a register that we know contains
+          // a value that is a fixed offset from the SP at the start of the
+          // function into the SP, then we know this is probably fine.
+          // Typical case is moving the frame pointer to the stack pointer
+          // in the function epilogue.
+          MCPhysReg FromReg, ToReg;
+          bool FixedRegToSPMove = false;
+          if (BC.MIB->isRegToRegMove(Inst, FromReg, ToReg)) {
+            if (ToReg == SP && S.RegsFixedOffsetFromOrigSP->contains(FromReg))
+              FixedRegToSPMove = true;
+          }
+          if (!FixedRegToSPMove) {
+            // mark to report that this may be an SP change that is not a
+            // constant amount.
+            LLVM_DEBUG({
+              dbgs() << "  Found SP Offset change that may not be a constant "
+                        "amount: ";
+              BC.printInstruction(dbgs(), Inst);
+            });
+            SCIAnnotations.push_back(
+                StackClashIssue::createNonConstantSPChangeData());
+          }
         }
         // merge and add annotations
         if (SCIAnnotations.size() == 0)
