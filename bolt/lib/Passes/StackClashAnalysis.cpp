@@ -55,10 +55,26 @@ namespace {
 // Step 1 - let's start by implementing detecting an issue on a bare minimal
 // example. Therefore, implement (2), (3), (4) and (a).
 
+/// Returns true if the register R is present in the Map M.
+bool addToMaxMap(SmallDenseMap<MCPhysReg, uint64_t, 1> &M, MCPhysReg R,
+                 const uint64_t MaxValue) {
+  auto MIt = M.find(R);
+  if (MIt == M.end()) {
+    MIt->second = MaxValue;
+    return false;
+  } else {
+    MIt->second = std::max(MIt->second, MaxValue);
+    return true;
+  }
+}
+
 struct State {
   // Store the maximum possible offset to which the stack extends
   // beyond the furthest probe seen.
   MaxOffsetSinceLastProbeT MaxOffsetSinceLastProbe;
+  /// ExactValues stores registers that we know have a specific
+  /// constant value.
+  SmallDenseMap<MCPhysReg, uint64_t, 1> RegConstValues;
   /// RegMaxValues stores registers that we know have a value in the
   /// range [0, MaxValue-1].
   SmallDenseMap<MCPhysReg, uint64_t, 1> RegMaxValues;
@@ -78,6 +94,22 @@ struct State {
 
   State &operator&=(const State &StateIn) {
     MaxOffsetSinceLastProbe &= StateIn.MaxOffsetSinceLastProbe;
+
+    SmallVector<MCPhysReg, 1> RegConstValuesToRemove;
+    for (auto Reg2ConstValue : RegConstValues) {
+      const MCPhysReg R(Reg2ConstValue.first);
+      const uint64_t ConstValue(Reg2ConstValue.second);
+      auto SInReg2ConstValue = StateIn.RegConstValues.find(R);
+      if (SInReg2ConstValue == StateIn.RegConstValues.end())
+        RegConstValuesToRemove.push_back(R);
+      else if (Reg2ConstValue.second != SInReg2ConstValue->second) {
+        RegConstValuesToRemove.push_back(R);
+        addToMaxMap(RegMaxValues, R, ConstValue);
+      }
+    }
+    for (MCPhysReg R : RegConstValuesToRemove)
+      RegConstValues.erase(R);
+
     SmallVector<MCPhysReg, 1> RegMaxValuesToRemove;
     for (auto Reg2MaxValue : RegMaxValues) {
       const MCPhysReg R(Reg2MaxValue.first);
@@ -114,6 +146,7 @@ struct State {
   }
   bool operator==(const State &RHS) const {
     return MaxOffsetSinceLastProbe == RHS.MaxOffsetSinceLastProbe &&
+           RegConstValues == RHS.RegConstValues &&
            RegMaxValues == RHS.RegMaxValues &&
            SPFixedOffsetFromOrig == RHS.SPFixedOffsetFromOrig &&
            RegsFixedOffsetFromOrigSP == RHS.RegsFixedOffsetFromOrigSP;
@@ -132,6 +165,14 @@ void print_reg(raw_ostream &OS, MCPhysReg Reg, const BinaryContext *BC) {
   }
 }
 
+void PrintRegMap(raw_ostream &OS, const SmallDenseMap<MCPhysReg, uint64_t, 1> &M,
+                 const BinaryContext *BC = nullptr) {
+  for (auto Reg2Value : M) {
+    print_reg(OS, Reg2Value.first, BC);
+    OS << ":" << Reg2Value.second << ",";
+  }
+}
+
 raw_ostream &print_state(raw_ostream &OS, const State &S,
                          const BinaryContext *BC = nullptr) {
   OS << "stackclash-state<MaxOff(";
@@ -139,11 +180,10 @@ raw_ostream &print_state(raw_ostream &OS, const State &S,
     OS << "nonConst";
   else
     OS << *(S.MaxOffsetSinceLastProbe);
+  OS << "), RegConstValues(";
+  PrintRegMap(OS, S.RegConstValues);
   OS << "), RegMaxValues(";
-  for (auto Reg2MaxValue : S.RegMaxValues) {
-    print_reg(OS, Reg2MaxValue.first, BC);
-    OS << ":" << Reg2MaxValue.second << ",";
-  }
+  PrintRegMap(OS, S.RegMaxValues);
   OS << "),";
   OS << "SPFixedOffsetFromOrig:" << S.SPFixedOffsetFromOrig << ",";
   OS << "RegsFixedOffsetFromOrigSP:";
@@ -234,6 +274,18 @@ protected:
       dbgs() << ")\n";
     });
 
+    MCPhysReg ConstValueReg = BC.MIB->getNoRegister();
+    int64_t ConstValue;
+    if (BC.MIB->isMovConstToReg(Point, ConstValueReg, ConstValue)) {
+      LLVM_DEBUG({
+        dbgs() << "  Found inst setting Reg to constant value " << ConstValue
+               << ":";
+        BC.printInstruction(dbgs(), Point);
+        dbgs() << "\n";
+      });
+      Next.RegConstValues[ConstValueReg] = ConstValue;
+    }
+
     MCPhysReg MaxValueReg = BC.MIB->getNoRegister();
     uint64_t MaxValueMask;
     if (BC.MIB->isRetainOnlyLowerBitsInReg(Point, MaxValueReg, MaxValueMask)) {
@@ -264,6 +316,8 @@ protected:
       assert(Operand.isReg());
       if (Operand.getReg() != MaxValueReg)
         Next.RegMaxValues.erase(Operand.getReg());
+      if (Operand.getReg() != ConstValueReg)
+        Next.RegConstValues.erase(Operand.getReg());
     }
 
     if (!Next.MaxOffsetSinceLastProbe)
@@ -312,7 +366,8 @@ protected:
       // non-constant amount, and hence violates stack-clash properties.
       Next.LastStackGrowingInsts.insert(MCInstInBBReference::get(&Point, BF));
       if (BC.MIB->getOffsetChange(OffsetChange, MaxOffsetChange, Point, SP,
-                                  Cur.RegMaxValues, IsPreIndexOffsetChange)) {
+                                  Cur.RegConstValues, Cur.RegMaxValues,
+                                  IsPreIndexOffsetChange)) {
         // Start tracking that we need accesses to the number of new pages on
         // the stack.
         assert(MaxOffsetChange);
@@ -419,7 +474,7 @@ void StackClashAnalysis::runOnFunction(
         bool tmp;
         if (BC.MIB->hasDefOfPhysReg(Inst, SP) &&
             !BC.MIB->getOffsetChange(OffsetChange, MaxOffsetChange, Inst, SP,
-                                     S.RegMaxValues, tmp)) {
+                                     S.RegConstValues, S.RegMaxValues, tmp)) {
           // If this is a register move from a register that we know contains
           // a value that is a fixed offset from the SP at the start of the
           // function into the SP, then we know this is probably fine.

@@ -1041,6 +1041,12 @@ public:
     return false;
   }
 
+  virtual bool isMovConstToReg(const MCInst &Inst, MCPhysReg &Reg,
+                               int64_t& ConstValue) const {
+    llvm_unreachable("not implemented");
+    return false;
+  }
+
   /// Identify by at most which constant value \p Inst changes the value
   /// of register \p Reg.
   /// Returns true if such a change was identified, false otherwise.
@@ -1048,6 +1054,7 @@ public:
   getOffsetChange(std::optional<int64_t> &OffsetChange,
                   std::optional<int64_t> &MaxOffsetChange, const MCInst &Inst,
                   MCPhysReg Reg,
+                  const SmallDenseMap<MCPhysReg, uint64_t, 1> &RegConstValues,
                   const SmallDenseMap<MCPhysReg, uint64_t, 1> &RegMaxValues,
                   bool &isPreIndexOffsetChange) const {
     llvm_unreachable("not implemented");
