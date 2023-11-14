@@ -165,7 +165,8 @@ void print_reg(raw_ostream &OS, MCPhysReg Reg, const BinaryContext *BC) {
   }
 }
 
-void PrintRegMap(raw_ostream &OS, const SmallDenseMap<MCPhysReg, uint64_t, 1> &M,
+void PrintRegMap(raw_ostream &OS,
+                 const SmallDenseMap<MCPhysReg, uint64_t, 1> &M,
                  const BinaryContext *BC = nullptr) {
   for (auto Reg2Value : M) {
     print_reg(OS, Reg2Value.first, BC);
@@ -544,7 +545,8 @@ void reportFoundGadget(const BinaryContext &BC, const BinaryBasicBlock &BB,
            << BFName;
     outs() << "\n";
     outs() << "  instruction ";
-    BC.printInstruction(outs(), Inst /*, BF->getAddress() + (*I).first, BF*/);
+    BC.printInstruction(outs(), Inst,
+                        MCInstInBBReference::get(&Inst, *BF).getAddress());
   }
 }
 
