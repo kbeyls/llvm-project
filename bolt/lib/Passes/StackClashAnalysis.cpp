@@ -237,7 +237,12 @@ protected:
 
   void preflight() {}
 
-  State getStartingStateAtBB(const BinaryBasicBlock &BB) { return State(); }
+  State getStartingStateAtBB(const BinaryBasicBlock &BB) {
+    State Next;
+    if (BB.isEntryPoint())
+      Next.RegsFixedOffsetFromOrigSP = SmallSet<MCPhysReg, 2>();
+    return Next;
+  }
 
   State getStartingStateAtPoint(const MCInst &Point) { return State(); }
 
@@ -341,8 +346,6 @@ protected:
       });
     }
 
-    if (!Next.RegsFixedOffsetFromOrigSP)
-      Next.RegsFixedOffsetFromOrigSP = SmallSet<MCPhysReg, 2>();
     MCPhysReg FixedOffsetRegJustSet = BC.MIB->getNoRegister();
     MCPhysReg FromReg, ToReg;
     if (BC.MIB->isRegToRegMove(Point, FromReg, ToReg)) {
@@ -353,7 +356,8 @@ protected:
     }
     for (const MCOperand &Operand : BC.MIB->defOperands(Point)) {
       assert(Operand.isReg());
-      if (Operand.getReg() != FixedOffsetRegJustSet)
+      if (Operand.getReg() != FixedOffsetRegJustSet &&
+          Next.RegsFixedOffsetFromOrigSP)
         Next.RegsFixedOffsetFromOrigSP->erase(Operand.getReg());
     }
 
@@ -484,7 +488,8 @@ void StackClashAnalysis::runOnFunction(
           MCPhysReg FromReg, ToReg;
           bool FixedRegToSPMove = false;
           if (BC.MIB->isRegToRegMove(Inst, FromReg, ToReg)) {
-            if (ToReg == SP && S.RegsFixedOffsetFromOrigSP->contains(FromReg))
+            if (ToReg == SP && S.RegsFixedOffsetFromOrigSP &&
+                S.RegsFixedOffsetFromOrigSP->contains(FromReg))
               FixedRegToSPMove = true;
           }
           if (!FixedRegToSPMove) {

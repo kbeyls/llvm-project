@@ -5,7 +5,7 @@
 
         .global f_fixed_large_stack
         .type   f_fixed_large_stack , %function
-f_fixed_large_stack :
+f_fixed_large_stack:
         sub     sp, sp, #32768
         sub     sp, sp, #32768
         sub     sp, sp, #32768
@@ -36,7 +36,7 @@ f_fixed_large_stack :
 //
         .global f_variable_large_stack
         .type   f_variable_large_stack , %function
-f_variable_large_stack :
+f_variable_large_stack:
         stp     x29, x30, [sp, #-16]!
         add     x1, x0, #0xf
         and     x1, x1, #0xfffffffffffffff0
@@ -58,7 +58,7 @@ f_variable_large_stack :
 
         .global f_variable_large_stack_protected
         .type   f_variable_large_stack_protected , %function
-f_variable_large_stack_protected :
+f_variable_large_stack_protected:
         stp     x29, x30, [sp, -16]!
         add     x1, x0, 15
         and     x2, x1, -65536
@@ -94,12 +94,11 @@ f_variable_large_stack_protected :
         ldp     x29, x30, [sp], 16
         ret
         .size   f_variable_large_stack_protected, .-f_variable_large_stack_protected
-
 // CHECK-NOT: GS-STACKCLASH:
 
         .global f_verify_detect_fp_corruption
         .type   f_verify_detect_fp_corruption , %function
-f_verify_detect_fp_corruption :
+f_verify_detect_fp_corruption:
         stp     x29, x30, [sp, -16]!
         mov     x29, sp
         mov     x29, x0
@@ -107,17 +106,27 @@ f_verify_detect_fp_corruption :
         ldp     x29, x30, [sp], 16
         ret
         .size   f_verify_detect_fp_corruption, .-f_verify_detect_fp_corruption
-
 // CHECK-LABEL: GS-STACKCLASH: non-constant SP change found in function f_verify_detect_fp_corruption
 // CHECK-NEXT:    instruction     {{[0-9a-f]+}}:     mov     sp, x29
 
-
-// verify that no other issues are reported:
+        .global f_recognize_fp
+        .type   f_recognize_fp , %function
+f_recognize_fp:
+        stp     x29, x30, [sp, -16]!
+        mov     x29, sp
+        bne     .L1
+        ldr     x0, [x29, #4]
+.L1:
+        mov     sp, x29
+        ldp     x29, x30, [sp], 16
+        ret
+        .size   f_recognize_fp, .-f_recognize_fp
 // CHECK-NOT: GS-STACKCLASH:
+
 
         .global f_constant_in_reg
         .type   f_constant_in_reg , %function
-f_constant_in_reg :
+f_constant_in_reg:
         stp     x29, x30, [sp, -16]!
         mov     x12, #40000
         sub     sp, sp, x12
@@ -125,6 +134,20 @@ f_constant_in_reg :
         ldp     x29, x30, [sp], 16
         ret
         .size   f_constant_in_reg, .-f_constant_in_reg
+
+// CHECK-NOT: GS-STACKCLASH:
+
+        .global f_recognize_fp_deadcode
+        .type   f_recognize_fp_deadcode , %function
+f_recognize_fp_deadcode:
+       mov     x29, sp
+       b    .Lfp3_1
+.Ldeadcode:
+       nop
+.Lfp3_1:
+       mov     sp, x29
+       ret
+       .size   f_recognize_fp_deadcode, .-f_recognize_fp_deadcode
 
 // CHECK-NOT: GS-STACKCLASH:
 
