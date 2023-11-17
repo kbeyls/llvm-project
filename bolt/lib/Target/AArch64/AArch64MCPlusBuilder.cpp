@@ -245,7 +245,7 @@ public:
   }
 
   bool isMovConstToReg(const MCInst &Inst, MCPhysReg &Reg,
-                       int64_t& ConstValue) const override {
+                       int64_t &ConstValue) const override {
     switch (Inst.getOpcode()) {
     case AArch64::MOVNWi:
     case AArch64::MOVNXi:
@@ -276,42 +276,45 @@ public:
     return false;
   }
 
-  bool
-  getOffsetChange(std::optional<int64_t> &OffsetChange,
-                  std::optional<int64_t> &MaxOffsetChange, const MCInst &Inst,
-                  MCPhysReg Reg,
+  struct OffsetChangeResult
+  getOffsetChange(const MCInst &Inst,
                   const SmallDenseMap<MCPhysReg, uint64_t, 1> &RegConstValues,
-                  const SmallDenseMap<MCPhysReg, uint64_t, 1> &RegMaxValues,
-                  bool &isPreIndexOffsetChange) const override {
-    OffsetChange = std::nullopt;
-    MaxOffsetChange = std::nullopt;
-    isPreIndexOffsetChange = false;
+                  const SmallDenseMap<MCPhysReg, uint64_t, 1> &RegMaxValues)
+      const override {
+    struct OffsetChangeResult Res(*this);
+    Res.IsOffsetChange = false;
     unsigned Opc = Inst.getOpcode();
+    llvm::Register Reg;
     if (std::optional<RegImmPair> RegImm =
             AArch64MCInstrInfo::isAddImmediate<MCInst, MCOperand>(Inst, Reg)) {
-      MCPhysReg SrcReg = RegImm->Reg;
-      if (SrcReg != Reg)
-        return false;
-      int64_t Offset = RegImm->Imm;
-      MaxOffsetChange = OffsetChange = Offset;
-      return true;
-    } else if ((AArch64MCInstrInfo::isPreLdStOpcode(*Info, Opc) ||
-                AArch64MCInstrInfo::isPostLdStOpcode(*Info, Opc))) {
-      isPreIndexOffsetChange = AArch64MCInstrInfo::isPreLdStOpcode(*Info, Opc);
+      Res.MaxOffsetChange = Res.OffsetChange = RegImm->Imm;
+      Res.FromReg = RegImm->Reg;
+      Res.ToReg = Reg;
+      Res.IsOffsetChange = true;
+      return Res;
+    } else if (isRegToRegMove(Inst, Res.FromReg, Res.ToReg)) {
+      Res.MaxOffsetChange = Res.OffsetChange = 0;
+      Res.IsOffsetChange = true;
+      return Res;
+    }
+    if ((AArch64MCInstrInfo::isPreLdStOpcode(*Info, Opc) ||
+         AArch64MCInstrInfo::isPostLdStOpcode(*Info, Opc))) {
       int16_t BaseOpIdx = AArch64::getNamedOperandIdx(Opc, AArch64::OpName::Rn);
       assert(BaseOpIdx != -1); // We assume that every pre-/post-index LD/ST
-      // does have an Rn field.
-      if (Inst.getOperand(BaseOpIdx).getReg() != Reg)
-        return false;
+                               // does have an Rn field.
+      // FIXME: Should I check that Rd != Rn?
       int16_t OffsetOpIdx =
           AArch64::getNamedOperandIdx(Opc, AArch64::OpName::offset);
       // We can only handle immediate offsets.
       if (OffsetOpIdx == -1 || !Inst.getOperand(OffsetOpIdx).isImm())
-        return false;
+        return Res;
       int64_t Offset = Inst.getOperand(OffsetOpIdx).getImm() *
                        AArch64InstrInfo::getMemScale(Opc);
-      MaxOffsetChange = OffsetChange = Offset;
-      return true;
+      Res.IsPreIndexOffsetChange = AArch64MCInstrInfo::isPreLdStOpcode(*Info, Opc);
+      Res.FromReg = Res.ToReg = Inst.getOperand(BaseOpIdx).getReg();
+      Res.MaxOffsetChange = Res.OffsetChange = Offset;
+      Res.IsOffsetChange = true;
+      return Res;
     } else {
       // Check if this as an add with a Register that we know has a constant or
       // limited maximum possible value.
@@ -323,15 +326,12 @@ public:
         LLVM_FALLTHROUGH;
       case AArch64::ADDXrr:
       case AArch64::ADDXrx64:
-        if (Inst.getOperand(0).getReg() != Reg ||
-            Inst.getOperand(1).getReg() != Reg)
-          return false;
         if (Opc == AArch64::SUBXrx64 &&
             AArch64_AM::getArithShiftValue(Inst.getOperand(3).getImm()) != 0)
-          return false;
+          return Res;
         if (Opc == AArch64::ADDXrx64 &&
             AArch64_AM::getArithShiftValue(Inst.getOperand(3).getImm()) != 0)
-          return false;
+          return Res;
         {
           MCPhysReg OffsetReg = Inst.getOperand(2).getReg();
           auto RegConstValueI = RegConstValues.find(OffsetReg);
@@ -339,22 +339,28 @@ public:
             int64_t Value = RegConstValueI->second;
             if (IsSub)
               Value = -Value;
-            MaxOffsetChange = OffsetChange = Value;
-            return true;
+            Res.FromReg = Inst.getOperand(1).getReg();
+            Res.ToReg = Inst.getOperand(0).getReg();
+            Res.MaxOffsetChange = Res.OffsetChange = Value;
+            Res.IsOffsetChange = true;
+            return Res;
           }
           auto RegMaxValueI = RegMaxValues.find(OffsetReg);
           if (RegMaxValueI != RegMaxValues.end()) {
             int64_t Value = RegMaxValueI->second;
             if (IsSub)
               Value = -Value;
-            MaxOffsetChange = Value;
-            return true;
+            Res.FromReg = Inst.getOperand(1).getReg();
+            Res.ToReg = Inst.getOperand(0).getReg();
+            Res.MaxOffsetChange = Value;
+            Res.IsOffsetChange = true;
+            return Res;
           }
         }
         break;
       }
     }
-    return false;
+    return Res;
   }
 
   /// isStackOffset does a best-effort analysis to see if this is an instruction
@@ -371,7 +377,8 @@ public:
     unsigned Width;
     int64_t MinOffset;
     int64_t MaxOffset;
-    if (!AArch64InstrInfo::getMemOpInfo(Opc, Scale, Width, MinOffset, MaxOffset))
+    if (!AArch64InstrInfo::getMemOpInfo(Opc, Scale, Width, MinOffset,
+                                        MaxOffset))
       return false;
     // Not handling scalable vectors yet.
     if (Scale.isScalable())

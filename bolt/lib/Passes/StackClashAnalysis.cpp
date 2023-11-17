@@ -82,6 +82,9 @@ struct State {
   /// of the original SP at the function start, or a fixed offset from it.
   /// This is especially useful to recognize frame pointers and the fact
   /// that epilogues can restore stack pointers from frame pointer values.
+  /// This is only tracked in Basic Blocks that are known to be reachable
+  /// from an entry block. For blocks not (yet) known to be reachable from
+  /// an entry block, the optional does not contain a value.
   std::optional<SmallSet<MCPhysReg, 2>> RegsFixedOffsetFromOrigSP;
   /// SPFixedOffsetFromOrig indicates whether the current SP value is
   /// a constant fixed offset from the SP value at the function start.
@@ -330,7 +333,6 @@ protected:
       return Next;
 
     const MCPhysReg SP = BC.MIB->getStackPointer();
-    bool IsPreIndexOffsetChange = false;
     int64_t StackAccessOffset;
     bool IsStackAccess;
 
@@ -347,41 +349,36 @@ protected:
     }
 
     MCPhysReg FixedOffsetRegJustSet = BC.MIB->getNoRegister();
-    MCPhysReg FromReg, ToReg;
-    if (BC.MIB->isRegToRegMove(Point, FromReg, ToReg)) {
-      if (FromReg == SP && Cur.SPFixedOffsetFromOrig) {
-        Next.RegsFixedOffsetFromOrigSP->insert(ToReg);
-        FixedOffsetRegJustSet = ToReg;
-      }
-    }
-    for (const MCOperand &Operand : BC.MIB->defOperands(Point)) {
-      assert(Operand.isReg());
-      if (Operand.getReg() != FixedOffsetRegJustSet &&
-          Next.RegsFixedOffsetFromOrigSP)
-        Next.RegsFixedOffsetFromOrigSP->erase(Operand.getReg());
-    }
+    if (auto OC = BC.MIB->getOffsetChange(Point, Cur.RegConstValues,
+                                          Cur.RegMaxValues))
+      if (Next.RegsFixedOffsetFromOrigSP)
+        if (OC.FromReg == SP ||
+            Cur.RegsFixedOffsetFromOrigSP->contains(OC.FromReg)) {
+          Next.RegsFixedOffsetFromOrigSP->insert(OC.ToReg);
+          FixedOffsetRegJustSet = OC.ToReg;
+        }
+    if (Next.RegsFixedOffsetFromOrigSP)
+      for (const MCOperand &Operand : BC.MIB->defOperands(Point))
+        if (Operand.getReg() != FixedOffsetRegJustSet)
+          Next.RegsFixedOffsetFromOrigSP->erase(Operand.getReg());
 
     if (BC.MIB->hasDefOfPhysReg(Point, SP)) {
-      std::optional<int64_t> OffsetChange;
-      std::optional<int64_t> MaxOffsetChange;
-      // Next, validate that validate that we can track by how much the SP
+      // Next, validate that  we can track by how much the SP
       // value changes. This should be a constant amount.
       // Else, if we cannot determine the fixed offset, mark this location as
       // needing a report that this potentially changes the SP value by a
       // non-constant amount, and hence violates stack-clash properties.
       Next.LastStackGrowingInsts.insert(MCInstInBBReference::get(&Point, BF));
-      if (BC.MIB->getOffsetChange(OffsetChange, MaxOffsetChange, Point, SP,
-                                  Cur.RegConstValues, Cur.RegMaxValues,
-                                  IsPreIndexOffsetChange)) {
-        // Start tracking that we need accesses to the number of new pages on
-        // the stack.
-        assert(MaxOffsetChange);
-        if (*MaxOffsetChange < 0)
+      if (auto OC = BC.MIB->getOffsetChange(Point, Cur.RegConstValues,
+                                            Cur.RegMaxValues);
+          OC && OC.ToReg == SP && OC.FromReg == SP) {
+        assert(OC.MaxOffsetChange);
+        if (*OC.MaxOffsetChange < 0)
           Next.MaxOffsetSinceLastProbe =
-              *Next.MaxOffsetSinceLastProbe - *MaxOffsetChange;
-        if (OffsetChange && Next.SPFixedOffsetFromOrig)
+              *Next.MaxOffsetSinceLastProbe - *OC.MaxOffsetChange;
+        if (OC.OffsetChange && Next.SPFixedOffsetFromOrig)
           Next.SPFixedOffsetFromOrig =
-              *Next.SPFixedOffsetFromOrig + *OffsetChange;
+              *Next.SPFixedOffsetFromOrig + *OC.OffsetChange;
           // FIXME: add test case for this if test.
 #if 0
         if (IsPreIndexOffsetChange)
@@ -391,16 +388,16 @@ protected:
         LLVM_DEBUG({
           dbgs() << "  Found SP Offset change: ";
           BC.printInstruction(dbgs(), Point);
-          dbgs() << "    OffsetChange: " << OffsetChange
-                 << "; MaxOffsetChange: " << MaxOffsetChange
+          dbgs() << "    OffsetChange: " << OC.OffsetChange
+                 << "; MaxOffsetChange: " << OC.MaxOffsetChange
                  << "; new MaxOffsetSinceLastProbe: "
-                 << *Next.MaxOffsetSinceLastProbe
+                 << Next.MaxOffsetSinceLastProbe
                  << "; new SPFixedOffsetFromOrig: "
-                 << *Next.SPFixedOffsetFromOrig
+                 << Next.SPFixedOffsetFromOrig
                  << "; IsStackAccess:" << IsStackAccess
                  << "; StackAccessOffset: " << StackAccessOffset << "\n";
         });
-        assert(!IsPreIndexOffsetChange || IsStackAccess);
+        assert(!OC.IsPreIndexOffsetChange || IsStackAccess);
         assert(*Next.MaxOffsetSinceLastProbe >= 0);
       } else {
         Next.MaxOffsetSinceLastProbe.reset();
@@ -474,25 +471,19 @@ void StackClashAnalysis::runOnFunction(
         // Else, if we cannot determine the fixed offset, mark this location
         // as needing a report that this potentially changes the SP value by a
         // non-constant amount, and hence violates stack-clash properties.
-        std::optional<int64_t> OffsetChange;
-        std::optional<int64_t> MaxOffsetChange;
-        bool tmp;
-        if (BC.MIB->hasDefOfPhysReg(Inst, SP) &&
-            !BC.MIB->getOffsetChange(OffsetChange, MaxOffsetChange, Inst, SP,
-                                     S.RegConstValues, S.RegMaxValues, tmp)) {
+        if (auto OC =
+                BC.MIB->getOffsetChange(Inst, S.RegConstValues, S.RegMaxValues);
+            BC.MIB->hasDefOfPhysReg(Inst, SP) &&
+            !(OC && OC.ToReg == SP && OC.FromReg == SP)) {
           // If this is a register move from a register that we know contains
           // a value that is a fixed offset from the SP at the start of the
           // function into the SP, then we know this is probably fine.
           // Typical case is moving the frame pointer to the stack pointer
           // in the function epilogue.
-          MCPhysReg FromReg, ToReg;
-          bool FixedRegToSPMove = false;
-          if (BC.MIB->isRegToRegMove(Inst, FromReg, ToReg)) {
-            if (ToReg == SP && S.RegsFixedOffsetFromOrigSP &&
-                S.RegsFixedOffsetFromOrigSP->contains(FromReg))
-              FixedRegToSPMove = true;
-          }
-          if (!FixedRegToSPMove) {
+          bool IsFixedRegToSPMove =
+              OC && OC.ToReg == SP && S.RegsFixedOffsetFromOrigSP &&
+              S.RegsFixedOffsetFromOrigSP->contains(OC.FromReg);
+          if (!IsFixedRegToSPMove) {
             // mark to report that this may be an SP change that is not a
             // constant amount.
             LLVM_DEBUG({

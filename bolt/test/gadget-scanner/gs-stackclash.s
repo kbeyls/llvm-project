@@ -114,10 +114,12 @@ f_verify_detect_fp_corruption:
 f_recognize_fp:
         stp     x29, x30, [sp, -16]!
         mov     x29, sp
+        add     x29, x29, #0x10
         bne     .L1
         ldr     x0, [x29, #4]
 .L1:
-        mov     sp, x29
+        // mov     sp, x29
+        sub     sp, x29, #0x10
         ldp     x29, x30, [sp], 16
         ret
         .size   f_recognize_fp, .-f_recognize_fp

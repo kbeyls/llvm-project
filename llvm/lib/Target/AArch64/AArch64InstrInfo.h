@@ -45,15 +45,9 @@ namespace AArch64MCInstrInfo {
 // components that only work at the MCInst layer, such as e.g. BOLT.
 
 template<typename InstClass, typename OperandClass>
-std::optional<RegImmPair> isAddImmediate(const InstClass &MI, Register Reg) {
+std::optional<RegImmPair> isAddImmediate(const InstClass &MI, Register& DstReg) {
   int Sign = 1;
   int64_t Offset = 0;
-
-  // TODO: Handle cases where Reg is a super- or sub-register of the
-  // destination register.
-  const OperandClass &Op0 = MI.getOperand(0);
-  if (!Op0.isReg() || Reg != Op0.getReg())
-    return std::nullopt;
 
   switch (MI.getOpcode()) {
   default:
@@ -77,6 +71,7 @@ std::optional<RegImmPair> isAddImmediate(const InstClass &MI, Register Reg) {
     Offset = Sign * (MI.getOperand(2).getImm() << Shift);
   }
   }
+  DstReg = MI.getOperand(0).getReg();
   return RegImmPair{MI.getOperand(1).getReg(), Offset};
 }
 

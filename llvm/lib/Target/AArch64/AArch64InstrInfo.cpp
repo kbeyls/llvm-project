@@ -9226,7 +9226,12 @@ AArch64InstrInfo::isCopyInstrImpl(const MachineInstr &MI) const {
 
 std::optional<RegImmPair>
 AArch64InstrInfo::isAddImmediate(const MachineInstr &MI, Register Reg) const {
-  return AArch64MCInstrInfo::isAddImmediate<MachineInstr, MachineOperand>(MI, Reg);
+  Register DstReg;
+  auto Result = AArch64MCInstrInfo::isAddImmediate<MachineInstr, MachineOperand>(MI, DstReg);
+  if (Result && DstReg == Reg)
+    return Result;
+  else
+    return std::nullopt;
 }
 
 /// If the given ORR instruction is a copy, and \p DescribedReg overlaps with

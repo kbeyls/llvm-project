@@ -1047,18 +1047,29 @@ public:
     return false;
   }
 
+  struct OffsetChangeResult {
+    bool IsOffsetChange;
+    std::optional<int64_t> OffsetChange;
+    std::optional<int64_t> MaxOffsetChange;
+    MCPhysReg ToReg;
+    MCPhysReg FromReg;
+    bool IsPreIndexOffsetChange;
+    OffsetChangeResult(const MCPlusBuilder& MIB)
+        : IsOffsetChange(false), ToReg(MIB.getNoRegister()),
+          FromReg(MIB.getNoRegister()), IsPreIndexOffsetChange(false) {}
+    operator bool() const { return IsOffsetChange; }
+  };
   /// Identify by at most which constant value \p Inst changes the value
   /// of register \p Reg.
-  /// Returns true if such a change was identified, false otherwise.
-  virtual bool
-  getOffsetChange(std::optional<int64_t> &OffsetChange,
-                  std::optional<int64_t> &MaxOffsetChange, const MCInst &Inst,
-                  MCPhysReg Reg,
-                  const SmallDenseMap<MCPhysReg, uint64_t, 1> &RegConstValues,
-                  const SmallDenseMap<MCPhysReg, uint64_t, 1> &RegMaxValues,
-                  bool &isPreIndexOffsetChange) const {
+  /// Returns true if such a change and register was identified, false
+  /// otherwise.
+  virtual struct OffsetChangeResult getOffsetChange(
+      const MCInst &Inst,
+      const SmallDenseMap<MCPhysReg, uint64_t, 1> &RegConstValues,
+      const SmallDenseMap<MCPhysReg, uint64_t, 1> &RegMaxValues) const {
     llvm_unreachable("not implemented");
-    return false;
+    struct OffsetChangeResult Res(*this);
+    return Res;
   }
 
   /// Use \p Input1 or Input2 as the current value for the input
