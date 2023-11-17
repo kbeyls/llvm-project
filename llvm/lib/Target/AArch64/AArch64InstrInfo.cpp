@@ -4058,8 +4058,12 @@ int AArch64InstrInfo::getMemScale(unsigned Opc) {
   case AArch64::STPQpre:
   case AArch64::STGi:
   case AArch64::STZGi:
+  case AArch64::STZGPostIndex:
+  case AArch64::STZGPreIndex:
   case AArch64::ST2Gi:
   case AArch64::STZ2Gi:
+  case AArch64::STZ2GPostIndex:
+  case AArch64::STZ2GPreIndex:
   case AArch64::STGPi:
     return 16;
   }
