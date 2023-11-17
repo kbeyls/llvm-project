@@ -4010,9 +4010,11 @@ int AArch64InstrInfo::getMemScale(unsigned Opc) {
   case AArch64::LDURXi:
   case AArch64::STRDui:
   case AArch64::STURDi:
+  case AArch64::STRDpost:
   case AArch64::STRDpre:
   case AArch64::STRXui:
   case AArch64::STURXi:
+  case AArch64::STRXpost:
   case AArch64::STRXpre:
   case AArch64::LDPDi:
   case AArch64::LDPDpost:
@@ -4033,6 +4035,7 @@ int AArch64InstrInfo::getMemScale(unsigned Opc) {
   case AArch64::LDURQi:
   case AArch64::STRQui:
   case AArch64::STURQi:
+  case AArch64::STRQpost:
   case AArch64::STRQpre:
   case AArch64::LDPQi:
   case AArch64::LDPQpost:
