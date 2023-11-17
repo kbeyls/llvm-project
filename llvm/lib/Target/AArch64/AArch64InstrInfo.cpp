@@ -4057,10 +4057,14 @@ int AArch64InstrInfo::getMemScale(unsigned Opc) {
   case AArch64::STPQpost:
   case AArch64::STPQpre:
   case AArch64::STGi:
+  case AArch64::STGPostIndex:
+  case AArch64::STGPreIndex:
   case AArch64::STZGi:
   case AArch64::STZGPostIndex:
   case AArch64::STZGPreIndex:
   case AArch64::ST2Gi:
+  case AArch64::ST2GPostIndex:
+  case AArch64::ST2GPreIndex:
   case AArch64::STZ2Gi:
   case AArch64::STZ2GPostIndex:
   case AArch64::STZ2GPreIndex:
