@@ -3954,6 +3954,10 @@ int AArch64InstrInfo::getMemScale(unsigned Opc) {
   case AArch64::LDRBpre:
   case AArch64::LDURBBi:
   case AArch64::LDRSBWui:
+  case AArch64::LDRSBWpre:
+  case AArch64::LDRSBWpost:
+  case AArch64::LDRSBXpre:
+  case AArch64::LDRSBXpost:
   case AArch64::LDURSBWi:
   case AArch64::STRBBui:
   case AArch64::STRBBpost:
