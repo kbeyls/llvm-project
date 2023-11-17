@@ -3943,6 +3943,27 @@ bool AArch64InstrInfo::getMemOpInfo(unsigned Opcode, TypeSize &Scale,
 }
 
 // Scaling factor for unscaled load or store.
+int AArch64MCInstrInfo::getOffsetScale(const MCInstrInfo& MII, unsigned Opc) {
+  uint64_t MemScaleEnumVal =
+        MII.get(Opc).TSFlags & AArch64::MemScaleMask;
+    switch (MemScaleEnumVal) {
+    default:
+    case AArch64::MemScaleNone:
+      llvm_unreachable("Opcode has unknown scale!");
+    case AArch64::MemScale1byte:
+      return 1;
+    case AArch64::MemScale2byte:
+      return 2;
+    case AArch64::MemScale4byte:
+      return 4;
+    case AArch64::MemScale8byte:
+      return 8;
+    case AArch64::MemScale16byte:
+      return 16;
+  }
+}
+
+// Scaling factor for unscaled load or store.
 int AArch64InstrInfo::getMemScale(unsigned Opc) {
   switch (Opc) {
   default:
@@ -4080,6 +4101,8 @@ int AArch64InstrInfo::getMemScale(unsigned Opc) {
   case AArch64::STZ2GPreIndex:
   case AArch64::STGPi:
     return 16;
+  // FIXME: there are well over 1000 load and store opcodes.
+  // It's unfeasible to keep on adding these by hand. Figure out a different way.
   }
 }
 

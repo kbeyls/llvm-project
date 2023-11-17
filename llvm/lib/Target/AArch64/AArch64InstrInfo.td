@@ -2291,9 +2291,10 @@ def : Pat<(AArch64st2g GPR64sp:$Rn, (am_indexeds9s128 GPR64sp:$Rm, simm9s16:$imm
 def : Pat<(AArch64stz2g GPR64sp:$Rn, (am_indexeds9s128 GPR64sp:$Rm, simm9s16:$imm)),
           (STZ2Gi $Rn, $Rm, $imm)>;
 
-defm STGP     : StorePairOffset <0b01, 0, GPR64z, simm7s16, "stgp">;
-def  STGPpre  : StorePairPreIdx <0b01, 0, GPR64z, simm7s16, "stgp">;
-def  STGPpost : StorePairPostIdx<0b01, 0, GPR64z, simm7s16, "stgp">;
+defm STGP     : StorePairOffset <0b01, 0, GPR64z, simm7s16, "stgp", MemScale16byte>;
+def  STGPpre  : StorePairPreIdx <0b01, 0, GPR64z, simm7s16, "stgp", MemScale16byte>;
+def  STGPpost : StorePairPostIdx<0b01, 0, GPR64z, simm7s16, "stgp", MemScale16byte>;
+
 
 def : Pat<(int_aarch64_stg GPR64:$Rt, (am_indexeds9s128 GPR64sp:$Rn, simm9s16:$offset)),
           (STGi GPR64:$Rt, GPR64sp:$Rn,  simm9s16:$offset)>;
@@ -2304,8 +2305,9 @@ def : Pat<(int_aarch64_stgp (am_indexed7s128 GPR64sp:$Rn, simm7s16:$imm), GPR64:
 def IRGstack
     : Pseudo<(outs GPR64sp:$Rd), (ins GPR64sp:$Rsp, GPR64:$Rm), []>,
       Sched<[]>;
+let MemScale = MemScale16byte in
 def TAGPstack
-    : Pseudo<(outs GPR64sp:$Rd), (ins GPR64sp:$Rn, uimm6s16:$imm6, GPR64sp:$Rm, imm0_15:$imm4), []>,
+    : Pseudo<(outs GPR64sp:$Rd), (ins GPR64sp:$Rn, uimm6s16:$offset, GPR64sp:$Rm, imm0_15:$imm4), []>,
       Sched<[]>;
 
 // Explicit SP in the first operand prevents ShrinkWrap optimization
@@ -2840,39 +2842,39 @@ def UDF : UDFType<0, "udf">;
 //===----------------------------------------------------------------------===//
 
 // Pair (indexed, offset)
-defm LDPW : LoadPairOffset<0b00, 0, GPR32z, simm7s4, "ldp">;
-defm LDPX : LoadPairOffset<0b10, 0, GPR64z, simm7s8, "ldp">;
-defm LDPS : LoadPairOffset<0b00, 1, FPR32Op, simm7s4, "ldp">;
-defm LDPD : LoadPairOffset<0b01, 1, FPR64Op, simm7s8, "ldp">;
-defm LDPQ : LoadPairOffset<0b10, 1, FPR128Op, simm7s16, "ldp">;
+defm LDPW : LoadPairOffset<0b00, 0, GPR32z, simm7s4, "ldp", MemScale4byte>;
+defm LDPX : LoadPairOffset<0b10, 0, GPR64z, simm7s8, "ldp", MemScale8byte>;
+defm LDPS : LoadPairOffset<0b00, 1, FPR32Op, simm7s4, "ldp", MemScale4byte>;
+defm LDPD : LoadPairOffset<0b01, 1, FPR64Op, simm7s8, "ldp", MemScale8byte>;
+defm LDPQ : LoadPairOffset<0b10, 1, FPR128Op, simm7s16, "ldp", MemScale16byte>;
 
-defm LDPSW : LoadPairOffset<0b01, 0, GPR64z, simm7s4, "ldpsw">;
+defm LDPSW : LoadPairOffset<0b01, 0, GPR64z, simm7s4, "ldpsw", MemScale4byte>;
 
 // Pair (pre-indexed)
-def LDPWpre : LoadPairPreIdx<0b00, 0, GPR32z, simm7s4, "ldp">;
-def LDPXpre : LoadPairPreIdx<0b10, 0, GPR64z, simm7s8, "ldp">;
-def LDPSpre : LoadPairPreIdx<0b00, 1, FPR32Op, simm7s4, "ldp">;
-def LDPDpre : LoadPairPreIdx<0b01, 1, FPR64Op, simm7s8, "ldp">;
-def LDPQpre : LoadPairPreIdx<0b10, 1, FPR128Op, simm7s16, "ldp">;
+def LDPWpre : LoadPairPreIdx<0b00, 0, GPR32z, simm7s4, "ldp", MemScale4byte>;
+def LDPXpre : LoadPairPreIdx<0b10, 0, GPR64z, simm7s8, "ldp", MemScale8byte>;
+def LDPSpre : LoadPairPreIdx<0b00, 1, FPR32Op, simm7s4, "ldp", MemScale4byte>;
+def LDPDpre : LoadPairPreIdx<0b01, 1, FPR64Op, simm7s8, "ldp", MemScale8byte>;
+def LDPQpre : LoadPairPreIdx<0b10, 1, FPR128Op, simm7s16, "ldp", MemScale16byte>;
 
-def LDPSWpre : LoadPairPreIdx<0b01, 0, GPR64z, simm7s4, "ldpsw">;
+def LDPSWpre : LoadPairPreIdx<0b01, 0, GPR64z, simm7s4, "ldpsw", MemScale4byte>;
 
 // Pair (post-indexed)
-def LDPWpost : LoadPairPostIdx<0b00, 0, GPR32z, simm7s4, "ldp">;
-def LDPXpost : LoadPairPostIdx<0b10, 0, GPR64z, simm7s8, "ldp">;
-def LDPSpost : LoadPairPostIdx<0b00, 1, FPR32Op, simm7s4, "ldp">;
-def LDPDpost : LoadPairPostIdx<0b01, 1, FPR64Op, simm7s8, "ldp">;
-def LDPQpost : LoadPairPostIdx<0b10, 1, FPR128Op, simm7s16, "ldp">;
+def LDPWpost : LoadPairPostIdx<0b00, 0, GPR32z, simm7s4, "ldp", MemScale4byte>;
+def LDPXpost : LoadPairPostIdx<0b10, 0, GPR64z, simm7s8, "ldp", MemScale8byte>;
+def LDPSpost : LoadPairPostIdx<0b00, 1, FPR32Op, simm7s4, "ldp", MemScale4byte>;
+def LDPDpost : LoadPairPostIdx<0b01, 1, FPR64Op, simm7s8, "ldp", MemScale8byte>;
+def LDPQpost : LoadPairPostIdx<0b10, 1, FPR128Op, simm7s16, "ldp", MemScale16byte>;
 
-def LDPSWpost : LoadPairPostIdx<0b01, 0, GPR64z, simm7s4, "ldpsw">;
+def LDPSWpost : LoadPairPostIdx<0b01, 0, GPR64z, simm7s4, "ldpsw", MemScale4byte>;
 
 
 // Pair (no allocate)
-defm LDNPW : LoadPairNoAlloc<0b00, 0, GPR32z, simm7s4, "ldnp">;
-defm LDNPX : LoadPairNoAlloc<0b10, 0, GPR64z, simm7s8, "ldnp">;
-defm LDNPS : LoadPairNoAlloc<0b00, 1, FPR32Op, simm7s4, "ldnp">;
-defm LDNPD : LoadPairNoAlloc<0b01, 1, FPR64Op, simm7s8, "ldnp">;
-defm LDNPQ : LoadPairNoAlloc<0b10, 1, FPR128Op, simm7s16, "ldnp">;
+defm LDNPW : LoadPairNoAlloc<0b00, 0, GPR32z, simm7s4, "ldnp", MemScale4byte>;
+defm LDNPX : LoadPairNoAlloc<0b10, 0, GPR64z, simm7s8, "ldnp", MemScale8byte>;
+defm LDNPS : LoadPairNoAlloc<0b00, 1, FPR32Op, simm7s4, "ldnp", MemScale4byte>;
+defm LDNPD : LoadPairNoAlloc<0b01, 1, FPR64Op, simm7s8, "ldnp", MemScale8byte>;
+defm LDNPQ : LoadPairNoAlloc<0b10, 1, FPR128Op, simm7s16, "ldnp", MemScale16byte>;
 
 def : Pat<(AArch64ldp (am_indexed7s64 GPR64sp:$Rn, simm7s8:$offset)),
           (LDPXi GPR64sp:$Rn, simm7s8:$offset)>;
@@ -3058,25 +3060,25 @@ let AddedComplexity = 10 in {
 //---
 // (unsigned immediate)
 //---
-defm LDRX : LoadUI<0b11, 0, 0b01, GPR64z, uimm12s8, "ldr",
+defm LDRX : LoadUI<0b11, 0, 0b01, GPR64z, uimm12s8, "ldr", MemScale8byte,
                    [(set GPR64z:$Rt,
                          (load (am_indexed64 GPR64sp:$Rn, uimm12s8:$offset)))]>;
-defm LDRW : LoadUI<0b10, 0, 0b01, GPR32z, uimm12s4, "ldr",
+defm LDRW : LoadUI<0b10, 0, 0b01, GPR32z, uimm12s4, "ldr", MemScale4byte,
                    [(set GPR32z:$Rt,
                          (load (am_indexed32 GPR64sp:$Rn, uimm12s4:$offset)))]>;
-defm LDRB : LoadUI<0b00, 1, 0b01, FPR8Op, uimm12s1, "ldr",
+defm LDRB : LoadUI<0b00, 1, 0b01, FPR8Op, uimm12s1, "ldr", MemScale1byte,
                    [(set FPR8Op:$Rt,
                          (load (am_indexed8 GPR64sp:$Rn, uimm12s1:$offset)))]>;
-defm LDRH : LoadUI<0b01, 1, 0b01, FPR16Op, uimm12s2, "ldr",
+defm LDRH : LoadUI<0b01, 1, 0b01, FPR16Op, uimm12s2, "ldr", MemScale2byte,
                    [(set (f16 FPR16Op:$Rt),
                          (load (am_indexed16 GPR64sp:$Rn, uimm12s2:$offset)))]>;
-defm LDRS : LoadUI<0b10, 1, 0b01, FPR32Op, uimm12s4, "ldr",
+defm LDRS : LoadUI<0b10, 1, 0b01, FPR32Op, uimm12s4, "ldr", MemScale4byte,
                    [(set (f32 FPR32Op:$Rt),
                          (load (am_indexed32 GPR64sp:$Rn, uimm12s4:$offset)))]>;
-defm LDRD : LoadUI<0b11, 1, 0b01, FPR64Op, uimm12s8, "ldr",
+defm LDRD : LoadUI<0b11, 1, 0b01, FPR64Op, uimm12s8, "ldr", MemScale8byte,
                    [(set (f64 FPR64Op:$Rt),
                          (load (am_indexed64 GPR64sp:$Rn, uimm12s8:$offset)))]>;
-defm LDRQ : LoadUI<0b00, 1, 0b11, FPR128Op, uimm12s16, "ldr",
+defm LDRQ : LoadUI<0b00, 1, 0b11, FPR128Op, uimm12s16, "ldr", MemScale16byte,
                  [(set (f128 FPR128Op:$Rt),
                        (load (am_indexed128 GPR64sp:$Rn, uimm12s16:$offset)))]>;
 
@@ -3164,11 +3166,11 @@ let Predicates = [IsLE] in {
 def : Pat<(f128  (load (am_indexed128 GPR64sp:$Rn, uimm12s16:$offset))),
           (LDRQui GPR64sp:$Rn, uimm12s16:$offset)>;
 
-defm LDRHH : LoadUI<0b01, 0, 0b01, GPR32, uimm12s2, "ldrh",
+defm LDRHH : LoadUI<0b01, 0, 0b01, GPR32, uimm12s2, "ldrh", MemScale2byte,
                     [(set GPR32:$Rt,
                           (zextloadi16 (am_indexed16 GPR64sp:$Rn,
                                                      uimm12s2:$offset)))]>;
-defm LDRBB : LoadUI<0b00, 0, 0b01, GPR32, uimm12s1, "ldrb",
+defm LDRBB : LoadUI<0b00, 0, 0b01, GPR32, uimm12s1, "ldrb", MemScale1byte,
                     [(set GPR32:$Rt,
                           (zextloadi8 (am_indexed8 GPR64sp:$Rn,
                                                    uimm12s1:$offset)))]>;
@@ -3201,27 +3203,27 @@ def : Pat<(i64 (extloadi1 (am_indexed8 GPR64sp:$Rn, uimm12s1:$offset))),
     (SUBREG_TO_REG (i64 0), (LDRBBui GPR64sp:$Rn, uimm12s1:$offset), sub_32)>;
 
 // load sign-extended half-word
-defm LDRSHW : LoadUI<0b01, 0, 0b11, GPR32, uimm12s2, "ldrsh",
+defm LDRSHW : LoadUI<0b01, 0, 0b11, GPR32, uimm12s2, "ldrsh", MemScale2byte,
                      [(set GPR32:$Rt,
                            (sextloadi16 (am_indexed16 GPR64sp:$Rn,
                                                       uimm12s2:$offset)))]>;
-defm LDRSHX : LoadUI<0b01, 0, 0b10, GPR64, uimm12s2, "ldrsh",
+defm LDRSHX : LoadUI<0b01, 0, 0b10, GPR64, uimm12s2, "ldrsh", MemScale2byte,
                      [(set GPR64:$Rt,
                            (sextloadi16 (am_indexed16 GPR64sp:$Rn,
                                                       uimm12s2:$offset)))]>;
 
 // load sign-extended byte
-defm LDRSBW : LoadUI<0b00, 0, 0b11, GPR32, uimm12s1, "ldrsb",
+defm LDRSBW : LoadUI<0b00, 0, 0b11, GPR32, uimm12s1, "ldrsb", MemScale1byte,
                      [(set GPR32:$Rt,
                            (sextloadi8 (am_indexed8 GPR64sp:$Rn,
                                                     uimm12s1:$offset)))]>;
-defm LDRSBX : LoadUI<0b00, 0, 0b10, GPR64, uimm12s1, "ldrsb",
+defm LDRSBX : LoadUI<0b00, 0, 0b10, GPR64, uimm12s1, "ldrsb", MemScale1byte,
                      [(set GPR64:$Rt,
                            (sextloadi8 (am_indexed8 GPR64sp:$Rn,
                                                     uimm12s1:$offset)))]>;
 
 // load sign-extended word
-defm LDRSW  : LoadUI<0b10, 0, 0b10, GPR64, uimm12s4, "ldrsw",
+defm LDRSW  : LoadUI<0b10, 0, 0b10, GPR64, uimm12s4, "ldrsw", MemScale4byte,
                      [(set GPR64:$Rt,
                            (sextloadi32 (am_indexed32 GPR64sp:$Rn,
                                                       uimm12s4:$offset)))]>;
@@ -3231,7 +3233,7 @@ def : Pat<(i64 (zextloadi32 (am_indexed32 GPR64sp:$Rn, uimm12s4:$offset))),
       (SUBREG_TO_REG (i64 0), (LDRWui GPR64sp:$Rn, uimm12s4:$offset), sub_32)>;
 
 // Pre-fetch.
-def PRFMui : PrefetchUI<0b11, 0, 0b10, "prfm",
+def PRFMui : PrefetchUI<0b11, 0, 0b10, "prfm", MemScale8byte,
                         [(AArch64Prefetch timm:$Rt,
                                         (am_indexed64 GPR64sp:$Rn,
                                                       uimm12s8:$offset))]>;
@@ -3556,53 +3558,53 @@ defm LDTRSW  : LoadUnprivileged<0b10, 0, 0b10, GPR64, "ldtrsw">;
 
 //---
 // (immediate pre-indexed)
-def LDRWpre : LoadPreIdx<0b10, 0, 0b01, GPR32z, "ldr">;
-def LDRXpre : LoadPreIdx<0b11, 0, 0b01, GPR64z, "ldr">;
-def LDRBpre : LoadPreIdx<0b00, 1, 0b01, FPR8Op,  "ldr">;
-def LDRHpre : LoadPreIdx<0b01, 1, 0b01, FPR16Op, "ldr">;
-def LDRSpre : LoadPreIdx<0b10, 1, 0b01, FPR32Op, "ldr">;
-def LDRDpre : LoadPreIdx<0b11, 1, 0b01, FPR64Op, "ldr">;
-def LDRQpre : LoadPreIdx<0b00, 1, 0b11, FPR128Op, "ldr">;
+def LDRWpre : LoadPreIdx<0b10, 0, 0b01, GPR32z, "ldr", MemScale4byte>;
+def LDRXpre : LoadPreIdx<0b11, 0, 0b01, GPR64z, "ldr", MemScale8byte>;
+def LDRBpre : LoadPreIdx<0b00, 1, 0b01, FPR8Op,  "ldr", MemScale1byte>;
+def LDRHpre : LoadPreIdx<0b01, 1, 0b01, FPR16Op, "ldr", MemScale2byte>;
+def LDRSpre : LoadPreIdx<0b10, 1, 0b01, FPR32Op, "ldr", MemScale4byte>;
+def LDRDpre : LoadPreIdx<0b11, 1, 0b01, FPR64Op, "ldr", MemScale4byte>;
+def LDRQpre : LoadPreIdx<0b00, 1, 0b11, FPR128Op, "ldr", MemScale16byte>;
 
 // load sign-extended half-word
-def LDRSHWpre : LoadPreIdx<0b01, 0, 0b11, GPR32z, "ldrsh">;
-def LDRSHXpre : LoadPreIdx<0b01, 0, 0b10, GPR64z, "ldrsh">;
+def LDRSHWpre : LoadPreIdx<0b01, 0, 0b11, GPR32z, "ldrsh", MemScale2byte>;
+def LDRSHXpre : LoadPreIdx<0b01, 0, 0b10, GPR64z, "ldrsh", MemScale2byte>;
 
 // load sign-extended byte
-def LDRSBWpre : LoadPreIdx<0b00, 0, 0b11, GPR32z, "ldrsb">;
-def LDRSBXpre : LoadPreIdx<0b00, 0, 0b10, GPR64z, "ldrsb">;
+def LDRSBWpre : LoadPreIdx<0b00, 0, 0b11, GPR32z, "ldrsb", MemScale1byte>;
+def LDRSBXpre : LoadPreIdx<0b00, 0, 0b10, GPR64z, "ldrsb", MemScale1byte>;
 
 // load zero-extended byte
-def LDRBBpre : LoadPreIdx<0b00, 0, 0b01, GPR32z, "ldrb">;
-def LDRHHpre : LoadPreIdx<0b01, 0, 0b01, GPR32z, "ldrh">;
+def LDRBBpre : LoadPreIdx<0b00, 0, 0b01, GPR32z, "ldrb", MemScale1byte>;
+def LDRHHpre : LoadPreIdx<0b01, 0, 0b01, GPR32z, "ldrh", MemScale2byte>;
 
 // load sign-extended word
-def LDRSWpre : LoadPreIdx<0b10, 0, 0b10, GPR64z, "ldrsw">;
+def LDRSWpre : LoadPreIdx<0b10, 0, 0b10, GPR64z, "ldrsw", MemScale4byte>;
 
 //---
 // (immediate post-indexed)
-def LDRWpost : LoadPostIdx<0b10, 0, 0b01, GPR32z, "ldr">;
-def LDRXpost : LoadPostIdx<0b11, 0, 0b01, GPR64z, "ldr">;
-def LDRBpost : LoadPostIdx<0b00, 1, 0b01, FPR8Op,  "ldr">;
-def LDRHpost : LoadPostIdx<0b01, 1, 0b01, FPR16Op, "ldr">;
-def LDRSpost : LoadPostIdx<0b10, 1, 0b01, FPR32Op, "ldr">;
-def LDRDpost : LoadPostIdx<0b11, 1, 0b01, FPR64Op, "ldr">;
-def LDRQpost : LoadPostIdx<0b00, 1, 0b11, FPR128Op, "ldr">;
+def LDRWpost : LoadPostIdx<0b10, 0, 0b01, GPR32z, "ldr", MemScale4byte>;
+def LDRXpost : LoadPostIdx<0b11, 0, 0b01, GPR64z, "ldr", MemScale8byte>;
+def LDRBpost : LoadPostIdx<0b00, 1, 0b01, FPR8Op,  "ldr", MemScale1byte>;
+def LDRHpost : LoadPostIdx<0b01, 1, 0b01, FPR16Op, "ldr", MemScale2byte>;
+def LDRSpost : LoadPostIdx<0b10, 1, 0b01, FPR32Op, "ldr", MemScale4byte>;
+def LDRDpost : LoadPostIdx<0b11, 1, 0b01, FPR64Op, "ldr", MemScale8byte>;
+def LDRQpost : LoadPostIdx<0b00, 1, 0b11, FPR128Op, "ldr", MemScale16byte>;
 
 // load sign-extended half-word
-def LDRSHWpost : LoadPostIdx<0b01, 0, 0b11, GPR32z, "ldrsh">;
-def LDRSHXpost : LoadPostIdx<0b01, 0, 0b10, GPR64z, "ldrsh">;
+def LDRSHWpost : LoadPostIdx<0b01, 0, 0b11, GPR32z, "ldrsh", MemScale2byte>;
+def LDRSHXpost : LoadPostIdx<0b01, 0, 0b10, GPR64z, "ldrsh", MemScale2byte>;
 
 // load sign-extended byte
-def LDRSBWpost : LoadPostIdx<0b00, 0, 0b11, GPR32z, "ldrsb">;
-def LDRSBXpost : LoadPostIdx<0b00, 0, 0b10, GPR64z, "ldrsb">;
+def LDRSBWpost : LoadPostIdx<0b00, 0, 0b11, GPR32z, "ldrsb", MemScale1byte>;
+def LDRSBXpost : LoadPostIdx<0b00, 0, 0b10, GPR64z, "ldrsb", MemScale1byte>;
 
 // load zero-extended byte
-def LDRBBpost : LoadPostIdx<0b00, 0, 0b01, GPR32z, "ldrb">;
-def LDRHHpost : LoadPostIdx<0b01, 0, 0b01, GPR32z, "ldrh">;
+def LDRBBpost : LoadPostIdx<0b00, 0, 0b01, GPR32z, "ldrb", MemScale1byte>;
+def LDRHHpost : LoadPostIdx<0b01, 0, 0b01, GPR32z, "ldrh", MemScale1byte>;
 
 // load sign-extended word
-def LDRSWpost : LoadPostIdx<0b10, 0, 0b10, GPR64z, "ldrsw">;
+def LDRSWpost : LoadPostIdx<0b10, 0, 0b10, GPR64z, "ldrsw", MemScale1byte>;
 
 //===----------------------------------------------------------------------===//
 // Store instructions.
@@ -3610,32 +3612,32 @@ def LDRSWpost : LoadPostIdx<0b10, 0, 0b10, GPR64z, "ldrsw">;
 
 // Pair (indexed, offset)
 // FIXME: Use dedicated range-checked addressing mode operand here.
-defm STPW : StorePairOffset<0b00, 0, GPR32z, simm7s4, "stp">;
-defm STPX : StorePairOffset<0b10, 0, GPR64z, simm7s8, "stp">;
-defm STPS : StorePairOffset<0b00, 1, FPR32Op, simm7s4, "stp">;
-defm STPD : StorePairOffset<0b01, 1, FPR64Op, simm7s8, "stp">;
-defm STPQ : StorePairOffset<0b10, 1, FPR128Op, simm7s16, "stp">;
+defm STPW : StorePairOffset<0b00, 0, GPR32z, simm7s4, "stp", MemScale4byte>;
+defm STPX : StorePairOffset<0b10, 0, GPR64z, simm7s8, "stp", MemScale8byte>;
+defm STPS : StorePairOffset<0b00, 1, FPR32Op, simm7s4, "stp", MemScale4byte>;
+defm STPD : StorePairOffset<0b01, 1, FPR64Op, simm7s8, "stp", MemScale8byte>;
+defm STPQ : StorePairOffset<0b10, 1, FPR128Op, simm7s16, "stp", MemScale16byte>;
 
 // Pair (pre-indexed)
-def STPWpre : StorePairPreIdx<0b00, 0, GPR32z, simm7s4, "stp">;
-def STPXpre : StorePairPreIdx<0b10, 0, GPR64z, simm7s8, "stp">;
-def STPSpre : StorePairPreIdx<0b00, 1, FPR32Op, simm7s4, "stp">;
-def STPDpre : StorePairPreIdx<0b01, 1, FPR64Op, simm7s8, "stp">;
-def STPQpre : StorePairPreIdx<0b10, 1, FPR128Op, simm7s16, "stp">;
+def STPWpre : StorePairPreIdx<0b00, 0, GPR32z, simm7s4, "stp", MemScale4byte>;
+def STPXpre : StorePairPreIdx<0b10, 0, GPR64z, simm7s8, "stp", MemScale8byte>;
+def STPSpre : StorePairPreIdx<0b00, 1, FPR32Op, simm7s4, "stp", MemScale4byte>;
+def STPDpre : StorePairPreIdx<0b01, 1, FPR64Op, simm7s8, "stp", MemScale8byte>;
+def STPQpre : StorePairPreIdx<0b10, 1, FPR128Op, simm7s16, "stp", MemScale16byte>;
 
 // Pair (post-indexed)
-def STPWpost : StorePairPostIdx<0b00, 0, GPR32z, simm7s4, "stp">;
-def STPXpost : StorePairPostIdx<0b10, 0, GPR64z, simm7s8, "stp">;
-def STPSpost : StorePairPostIdx<0b00, 1, FPR32Op, simm7s4, "stp">;
-def STPDpost : StorePairPostIdx<0b01, 1, FPR64Op, simm7s8, "stp">;
-def STPQpost : StorePairPostIdx<0b10, 1, FPR128Op, simm7s16, "stp">;
+def STPWpost : StorePairPostIdx<0b00, 0, GPR32z, simm7s4, "stp", MemScale4byte>;
+def STPXpost : StorePairPostIdx<0b10, 0, GPR64z, simm7s8, "stp", MemScale8byte>;
+def STPSpost : StorePairPostIdx<0b00, 1, FPR32Op, simm7s4, "stp", MemScale4byte>;
+def STPDpost : StorePairPostIdx<0b01, 1, FPR64Op, simm7s8, "stp", MemScale8byte>;
+def STPQpost : StorePairPostIdx<0b10, 1, FPR128Op, simm7s16, "stp", MemScale16byte>;
 
 // Pair (no allocate)
-defm STNPW : StorePairNoAlloc<0b00, 0, GPR32z, simm7s4, "stnp">;
-defm STNPX : StorePairNoAlloc<0b10, 0, GPR64z, simm7s8, "stnp">;
-defm STNPS : StorePairNoAlloc<0b00, 1, FPR32Op, simm7s4, "stnp">;
-defm STNPD : StorePairNoAlloc<0b01, 1, FPR64Op, simm7s8, "stnp">;
-defm STNPQ : StorePairNoAlloc<0b10, 1, FPR128Op, simm7s16, "stnp">;
+defm STNPW : StorePairNoAlloc<0b00, 0, GPR32z, simm7s4, "stnp", MemScale4byte>;
+defm STNPX : StorePairNoAlloc<0b10, 0, GPR64z, simm7s8, "stnp", MemScale8byte>;
+defm STNPS : StorePairNoAlloc<0b00, 1, FPR32Op, simm7s4, "stnp", MemScale4byte>;
+defm STNPD : StorePairNoAlloc<0b01, 1, FPR64Op, simm7s8, "stnp", MemScale8byte>;
+defm STNPQ : StorePairNoAlloc<0b10, 1, FPR128Op, simm7s16, "stnp", MemScale16byte>;
 
 def : Pat<(AArch64stp GPR64z:$Rt, GPR64z:$Rt2, (am_indexed7s64 GPR64sp:$Rn, simm7s8:$offset)),
           (STPXi GPR64z:$Rt, GPR64z:$Rt2, GPR64sp:$Rn, simm7s8:$offset)>;
@@ -3648,6 +3650,7 @@ def : Pat<(AArch64stnp FPR128:$Rt, FPR128:$Rt2, (am_indexed7s128 GPR64sp:$Rn, si
 // (Register offset)
 
 // Integer
+// FIXME: figure out if I can just put MemScale on Store8RO?
 defm STRBB : Store8RO< 0b00, 0, 0b00, GPR32, "strb", i32, truncstorei8>;
 defm STRHH : Store16RO<0b01, 0, 0b00, GPR32, "strh", i32, truncstorei16>;
 defm STRW  : Store32RO<0b10, 0, 0b00, GPR32, "str",  i32, store>;
@@ -3762,31 +3765,32 @@ let AddedComplexity = 19 in {
 
 //---
 // (unsigned immediate)
-defm STRX : StoreUIz<0b11, 0, 0b00, GPR64z, uimm12s8, "str",
+defm STRX : StoreUIz<0b11, 0, 0b00, GPR64z, uimm12s8, "str", MemScale8byte,
                    [(store GPR64z:$Rt,
                             (am_indexed64 GPR64sp:$Rn, uimm12s8:$offset))]>;
-defm STRW : StoreUIz<0b10, 0, 0b00, GPR32z, uimm12s4, "str",
+defm STRW : StoreUIz<0b10, 0, 0b00, GPR32z, uimm12s4, "str", MemScale4byte,
                     [(store GPR32z:$Rt,
                             (am_indexed32 GPR64sp:$Rn, uimm12s4:$offset))]>;
-defm STRB : StoreUI<0b00, 1, 0b00, FPR8Op, uimm12s1, "str",
+defm STRB : StoreUI<0b00, 1, 0b00, FPR8Op, uimm12s1, "str", MemScale1byte,
                     [(store FPR8Op:$Rt,
                             (am_indexed8 GPR64sp:$Rn, uimm12s1:$offset))]>;
-defm STRH : StoreUI<0b01, 1, 0b00, FPR16Op, uimm12s2, "str",
+defm STRH : StoreUI<0b01, 1, 0b00, FPR16Op, uimm12s2, "str", MemScale2byte,
                     [(store (f16 FPR16Op:$Rt),
                             (am_indexed16 GPR64sp:$Rn, uimm12s2:$offset))]>;
-defm STRS : StoreUI<0b10, 1, 0b00, FPR32Op, uimm12s4, "str",
+defm STRS : StoreUI<0b10, 1, 0b00, FPR32Op, uimm12s4, "str", MemScale4byte,
                     [(store (f32 FPR32Op:$Rt),
                             (am_indexed32 GPR64sp:$Rn, uimm12s4:$offset))]>;
-defm STRD : StoreUI<0b11, 1, 0b00, FPR64Op, uimm12s8, "str",
+defm STRD : StoreUI<0b11, 1, 0b00, FPR64Op, uimm12s8, "str", MemScale8byte,
                     [(store (f64 FPR64Op:$Rt),
                             (am_indexed64 GPR64sp:$Rn, uimm12s8:$offset))]>;
-defm STRQ : StoreUI<0b00, 1, 0b10, FPR128Op, uimm12s16, "str", []>;
+defm STRQ : StoreUI<0b00, 1, 0b10, FPR128Op, uimm12s16, "str", MemScale16byte,
+                    []>;
 
-defm STRHH : StoreUIz<0b01, 0, 0b00, GPR32z, uimm12s2, "strh",
+defm STRHH : StoreUIz<0b01, 0, 0b00, GPR32z, uimm12s2, "strh", MemScale2byte,
                      [(truncstorei16 GPR32z:$Rt,
                                      (am_indexed16 GPR64sp:$Rn,
                                                    uimm12s2:$offset))]>;
-defm STRBB : StoreUIz<0b00, 0, 0b00, GPR32z, uimm12s1,  "strb",
+defm STRBB : StoreUIz<0b00, 0, 0b00, GPR32z, uimm12s1,  "strb", MemScale1byte,
                      [(truncstorei8 GPR32z:$Rt,
                                     (am_indexed8 GPR64sp:$Rn,
                                                  uimm12s1:$offset))]>;
@@ -4066,16 +4070,16 @@ defm STTRB : StoreUnprivileged<0b00, 0, 0b00, GPR32, "sttrb">;
 
 //---
 // (immediate pre-indexed)
-def STRWpre : StorePreIdx<0b10, 0, 0b00, GPR32z, "str",  pre_store, i32>;
-def STRXpre : StorePreIdx<0b11, 0, 0b00, GPR64z, "str",  pre_store, i64>;
-def STRBpre : StorePreIdx<0b00, 1, 0b00, FPR8Op,  "str",  pre_store, i8>;
-def STRHpre : StorePreIdx<0b01, 1, 0b00, FPR16Op, "str",  pre_store, f16>;
-def STRSpre : StorePreIdx<0b10, 1, 0b00, FPR32Op, "str",  pre_store, f32>;
-def STRDpre : StorePreIdx<0b11, 1, 0b00, FPR64Op, "str",  pre_store, f64>;
-def STRQpre : StorePreIdx<0b00, 1, 0b10, FPR128Op, "str", pre_store, f128>;
+def STRWpre : StorePreIdx<0b10, 0, 0b00, GPR32z, "str", MemScale4byte,  pre_store, i32>;
+def STRXpre : StorePreIdx<0b11, 0, 0b00, GPR64z, "str", MemScale8byte,  pre_store, i64>;
+def STRBpre : StorePreIdx<0b00, 1, 0b00, FPR8Op,  "str", MemScale1byte,  pre_store, i8>;
+def STRHpre : StorePreIdx<0b01, 1, 0b00, FPR16Op, "str", MemScale2byte,  pre_store, f16>;
+def STRSpre : StorePreIdx<0b10, 1, 0b00, FPR32Op, "str", MemScale4byte,  pre_store, f32>;
+def STRDpre : StorePreIdx<0b11, 1, 0b00, FPR64Op, "str", MemScale8byte,  pre_store, f64>;
+def STRQpre : StorePreIdx<0b00, 1, 0b10, FPR128Op, "str", MemScale16byte, pre_store, f128>;
 
-def STRBBpre : StorePreIdx<0b00, 0, 0b00, GPR32z, "strb", pre_truncsti8,  i32>;
-def STRHHpre : StorePreIdx<0b01, 0, 0b00, GPR32z, "strh", pre_truncsti16, i32>;
+def STRBBpre : StorePreIdx<0b00, 0, 0b00, GPR32z, "strb", MemScale1byte, pre_truncsti8,  i32>;
+def STRHHpre : StorePreIdx<0b01, 0, 0b00, GPR32z, "strh", MemScale2byte, pre_truncsti16, i32>;
 
 // truncstore i64
 def : Pat<(pre_truncsti32 GPR64:$Rt, GPR64sp:$addr, simm9:$off),
@@ -4120,16 +4124,16 @@ def : Pat<(pre_store (v8f16 FPR128:$Rt), GPR64sp:$addr, simm9:$off),
 
 //---
 // (immediate post-indexed)
-def STRWpost : StorePostIdx<0b10, 0, 0b00, GPR32z,  "str", post_store, i32>;
-def STRXpost : StorePostIdx<0b11, 0, 0b00, GPR64z,  "str", post_store, i64>;
-def STRBpost : StorePostIdx<0b00, 1, 0b00, FPR8Op,   "str", post_store, i8>;
-def STRHpost : StorePostIdx<0b01, 1, 0b00, FPR16Op,  "str", post_store, f16>;
-def STRSpost : StorePostIdx<0b10, 1, 0b00, FPR32Op,  "str", post_store, f32>;
-def STRDpost : StorePostIdx<0b11, 1, 0b00, FPR64Op,  "str", post_store, f64>;
-def STRQpost : StorePostIdx<0b00, 1, 0b10, FPR128Op, "str", post_store, f128>;
+def STRWpost : StorePostIdx<0b10, 0, 0b00, GPR32z,  "str", MemScale4byte, post_store, i32>;
+def STRXpost : StorePostIdx<0b11, 0, 0b00, GPR64z,  "str", MemScale8byte, post_store, i64>;
+def STRBpost : StorePostIdx<0b00, 1, 0b00, FPR8Op,   "str", MemScale1byte, post_store, i8>;
+def STRHpost : StorePostIdx<0b01, 1, 0b00, FPR16Op,  "str", MemScale2byte, post_store, f16>;
+def STRSpost : StorePostIdx<0b10, 1, 0b00, FPR32Op,  "str", MemScale4byte, post_store, f32>;
+def STRDpost : StorePostIdx<0b11, 1, 0b00, FPR64Op,  "str", MemScale8byte, post_store, f64>;
+def STRQpost : StorePostIdx<0b00, 1, 0b10, FPR128Op, "str", MemScale16byte, post_store, f128>;
 
-def STRBBpost : StorePostIdx<0b00, 0, 0b00, GPR32z, "strb", post_truncsti8, i32>;
-def STRHHpost : StorePostIdx<0b01, 0, 0b00, GPR32z, "strh", post_truncsti16, i32>;
+def STRBBpost : StorePostIdx<0b00, 0, 0b00, GPR32z, "strb", MemScale1byte, post_truncsti8, i32>;
+def STRHHpost : StorePostIdx<0b01, 0, 0b00, GPR32z, "strh", MemScale2byte, post_truncsti16, i32>;
 
 // truncstore i64
 def : Pat<(post_truncsti32 GPR64:$Rt, GPR64sp:$addr, simm9:$off),
@@ -9244,14 +9248,42 @@ let Predicates = [HasLSE128] in {
 
 let Predicates = [HasRCPC3] in {
   //                                             size   opc    opc2
-  def STILPWpre:  BaseLRCPC3IntegerLoadStorePair<0b10, 0b00, 0b0000, (outs GPR64sp:$wback), (ins GPR32:$Rt, GPR32:$Rt2, GPR64sp:$Rn), "stilp", "\t$Rt, $Rt2, [$Rn, #-8]!", "$Rn = $wback">;
-  def STILPXpre:  BaseLRCPC3IntegerLoadStorePair<0b11, 0b00, 0b0000, (outs GPR64sp:$wback), (ins GPR64:$Rt, GPR64:$Rt2, GPR64sp:$Rn), "stilp", "\t$Rt, $Rt2, [$Rn, #-16]!", "$Rn = $wback">;
-  def STILPW:     BaseLRCPC3IntegerLoadStorePair<0b10, 0b00, 0b0001, (outs), (ins GPR32:$Rt, GPR32:$Rt2, GPR64sp:$Rn), "stilp", "\t$Rt, $Rt2, [$Rn]", "">;
-  def STILPX:     BaseLRCPC3IntegerLoadStorePair<0b11, 0b00, 0b0001, (outs), (ins GPR64:$Rt, GPR64:$Rt2, GPR64sp:$Rn), "stilp", "\t$Rt, $Rt2, [$Rn]", "">;
-  def LDIAPPWpre: BaseLRCPC3IntegerLoadStorePair<0b10, 0b01, 0b0000, (outs GPR64sp:$wback, GPR32:$Rt, GPR32:$Rt2), (ins GPR64sp:$Rn), "ldiapp", "\t$Rt, $Rt2, [$Rn], #8", "$Rn = $wback">;
-  def LDIAPPXpre: BaseLRCPC3IntegerLoadStorePair<0b11, 0b01, 0b0000, (outs GPR64sp:$wback, GPR64:$Rt, GPR64:$Rt2), (ins GPR64sp:$Rn), "ldiapp", "\t$Rt, $Rt2, [$Rn], #16", "$Rn = $wback">;
-  def LDIAPPW:    BaseLRCPC3IntegerLoadStorePair<0b10, 0b01, 0b0001, (outs GPR32:$Rt, GPR32:$Rt2), (ins GPR64sp0:$Rn), "ldiapp", "\t$Rt, $Rt2, [$Rn]", "">;
-  def LDIAPPX:    BaseLRCPC3IntegerLoadStorePair<0b11, 0b01, 0b0001, (outs GPR64:$Rt, GPR64:$Rt2), (ins GPR64sp0:$Rn), "ldiapp", "\t$Rt, $Rt2, [$Rn]", "">;
+  // FIXME: add MemScale?
+  // FIXME: add isPreLdSt. add offset field?
+  let isPreLdSt = 1 in {
+    def STILPWpre:  BaseLRCPC3IntegerLoadStorePair<0b10, 0b00, 0b0000,
+        (outs GPR64sp:$wback), (ins GPR32:$Rt, GPR32:$Rt2, GPR64sp:$Rn),
+        "stilp", "\t$Rt, $Rt2, [$Rn, #-8]!", MemScale1byte, // FIXME: this depends on how a new offset field will be encoded.
+        "$Rn = $wback">;
+    def STILPXpre:  BaseLRCPC3IntegerLoadStorePair<0b11, 0b00, 0b0000,
+        (outs GPR64sp:$wback), (ins GPR64:$Rt, GPR64:$Rt2, GPR64sp:$Rn),
+        "stilp", "\t$Rt, $Rt2, [$Rn, #-16]!", MemScale1byte, // FIXME: this depends on how a new offset field will be encoded.
+        "$Rn = $wback">;
+  }
+  def STILPW:     BaseLRCPC3IntegerLoadStorePair<0b10, 0b00, 0b0001,
+      (outs), (ins GPR32:$Rt, GPR32:$Rt2, GPR64sp:$Rn),
+      "stilp", "\t$Rt, $Rt2, [$Rn]", MemScaleNone, "">;
+  def STILPX:     BaseLRCPC3IntegerLoadStorePair<0b11, 0b00, 0b0001,
+      (outs), (ins GPR64:$Rt, GPR64:$Rt2, GPR64sp:$Rn),
+      "stilp", "\t$Rt, $Rt2, [$Rn]", MemScaleNone, "">;
+  // FIXME: should this be post?
+  // FIXME add isPostLdSt. add Offset field?
+  let isPostLdSt = 1 in {
+    def LDIAPPWpost: BaseLRCPC3IntegerLoadStorePair<0b10, 0b01, 0b0000,
+        (outs GPR64sp:$wback, GPR32:$Rt, GPR32:$Rt2), (ins GPR64sp:$Rn),
+        "ldiapp", "\t$Rt, $Rt2, [$Rn], #8", MemScale1byte, // FIXME: this depends on how a new offset field will be encoded.
+        "$Rn = $wback">;
+    def LDIAPPXpost: BaseLRCPC3IntegerLoadStorePair<0b11, 0b01, 0b0000,
+        (outs GPR64sp:$wback, GPR64:$Rt, GPR64:$Rt2), (ins GPR64sp:$Rn),
+        "ldiapp", "\t$Rt, $Rt2, [$Rn], #16", MemScale1byte,  // FIXME: this depends on how a new offset field will be encoded.
+        "$Rn = $wback">;
+  }
+  def LDIAPPW:    BaseLRCPC3IntegerLoadStorePair<0b10, 0b01, 0b0001,
+      (outs GPR32:$Rt, GPR32:$Rt2), (ins GPR64sp0:$Rn),
+      "ldiapp", "\t$Rt, $Rt2, [$Rn]", MemScaleNone, "">;
+  def LDIAPPX:    BaseLRCPC3IntegerLoadStorePair<0b11, 0b01, 0b0001,
+      (outs GPR64:$Rt, GPR64:$Rt2), (ins GPR64sp0:$Rn),
+      "ldiapp", "\t$Rt, $Rt2, [$Rn]", MemScaleNone, "">;
 
   def : Pat<(AArch64ldiapp GPR64sp:$Rn), (LDIAPPX GPR64sp:$Rn)>;
   def : Pat<(AArch64stilp GPR64:$Rt, GPR64:$Rt2, GPR64sp:$Rn), (STILPX GPR64:$Rt, GPR64:$Rt2, GPR64sp:$Rn)>;
@@ -9261,28 +9293,57 @@ let Predicates = [HasRCPC3] in {
   def : InstAlias<"stilp\t$Rt, $Rt2, [$Rn, #0]", (STILPX GPR64: $Rt, GPR64: $Rt2, GPR64sp:$Rn)>;
 
   //                                        size   opc
-  def STLRWpre:  BaseLRCPC3IntegerLoadStore<0b10, 0b10, (outs GPR64sp:$wback),            (ins GPR32:$Rt, GPR64sp:$Rn), "stlr",  "\t$Rt, [$Rn, #-4]!", "$Rn = $wback">;
-  def STLRXpre:  BaseLRCPC3IntegerLoadStore<0b11, 0b10, (outs GPR64sp:$wback),            (ins GPR64:$Rt, GPR64sp:$Rn), "stlr",  "\t$Rt, [$Rn, #-8]!", "$Rn = $wback">;
-  def LDAPRWpre: BaseLRCPC3IntegerLoadStore<0b10, 0b11, (outs GPR64sp:$wback, GPR32:$Rt), (ins GPR64sp:$Rn),            "ldapr", "\t$Rt, [$Rn], #4",   "$Rn = $wback">;
-  def LDAPRXpre: BaseLRCPC3IntegerLoadStore<0b11, 0b11, (outs GPR64sp:$wback, GPR64:$Rt), (ins GPR64sp:$Rn),            "ldapr", "\t$Rt, [$Rn], #8",   "$Rn = $wback">;
+  // FIXME: add isPreLdSt? Add Offset field.
+  def STLRWpre:  BaseLRCPC3IntegerLoadStore<0b10, 0b10,
+      (outs GPR64sp:$wback),            (ins GPR32:$Rt, GPR64sp:$Rn),
+      "stlr",  "\t$Rt, [$Rn, #-4]!", MemScale1byte, // FIXME: this depends on how a new offset field will be encoded.
+      "$Rn = $wback">;
+  def STLRXpre:  BaseLRCPC3IntegerLoadStore<0b11, 0b10,
+      (outs GPR64sp:$wback),            (ins GPR64:$Rt, GPR64sp:$Rn),
+      "stlr",  "\t$Rt, [$Rn, #-8]!", MemScale1byte, // FIXME: this depends on how a new offset field will be encoded.
+      "$Rn = $wback">;
+  // FIXME: add isPostLdSt? change name to Post. Add Offset field
+  def LDAPRWpre: BaseLRCPC3IntegerLoadStore<0b10, 0b11,
+      (outs GPR64sp:$wback, GPR32:$Rt), (ins GPR64sp:$Rn),
+      "ldapr", "\t$Rt, [$Rn], #4",   MemScale1byte, // FIXME: this depends on how a new offset field will be encoded.
+      "$Rn = $wback">;
+  def LDAPRXpre: BaseLRCPC3IntegerLoadStore<0b11, 0b11,
+      (outs GPR64sp:$wback, GPR64:$Rt), (ins GPR64sp:$Rn),
+      "ldapr", "\t$Rt, [$Rn], #8",   MemScale1byte, // FIXME: this depends on how a new offset field will be encoded.
+      "$Rn = $wback">;
 }
 
 let Predicates = [HasRCPC3, HasNEON] in {
   //                                              size   opc regtype
-  defm STLURb:  LRCPC3NEONLoadStoreUnscaledOffset<0b00, 0b00, FPR8  , (outs), (ins FPR8  :$Rt, GPR64sp:$Rn, simm9:$simm), "stlur">;
-  defm STLURh:  LRCPC3NEONLoadStoreUnscaledOffset<0b01, 0b00, FPR16 , (outs), (ins FPR16 :$Rt, GPR64sp:$Rn, simm9:$simm), "stlur">;
-  defm STLURs:  LRCPC3NEONLoadStoreUnscaledOffset<0b10, 0b00, FPR32 , (outs), (ins FPR32 :$Rt, GPR64sp:$Rn, simm9:$simm), "stlur">;
-  defm STLURd:  LRCPC3NEONLoadStoreUnscaledOffset<0b11, 0b00, FPR64 , (outs), (ins FPR64 :$Rt, GPR64sp:$Rn, simm9:$simm), "stlur">;
-  defm STLURq:  LRCPC3NEONLoadStoreUnscaledOffset<0b00, 0b10, FPR128, (outs), (ins FPR128:$Rt, GPR64sp:$Rn, simm9:$simm), "stlur">;
-  defm LDAPURb: LRCPC3NEONLoadStoreUnscaledOffset<0b00, 0b01, FPR8  , (outs FPR8  :$Rt), (ins GPR64sp:$Rn, simm9:$simm), "ldapur">;
-  defm LDAPURh: LRCPC3NEONLoadStoreUnscaledOffset<0b01, 0b01, FPR16 , (outs FPR16 :$Rt), (ins GPR64sp:$Rn, simm9:$simm), "ldapur">;
-  defm LDAPURs: LRCPC3NEONLoadStoreUnscaledOffset<0b10, 0b01, FPR32 , (outs FPR32 :$Rt), (ins GPR64sp:$Rn, simm9:$simm), "ldapur">;
-  defm LDAPURd: LRCPC3NEONLoadStoreUnscaledOffset<0b11, 0b01, FPR64 , (outs FPR64 :$Rt), (ins GPR64sp:$Rn, simm9:$simm), "ldapur">;
-  defm LDAPURq: LRCPC3NEONLoadStoreUnscaledOffset<0b00, 0b11, FPR128, (outs FPR128:$Rt), (ins GPR64sp:$Rn, simm9:$simm), "ldapur">;
+  defm STLURb:  LRCPC3NEONLoadStoreUnscaledOffset<0b00, 0b00, FPR8  ,
+      (outs), (ins FPR8  :$Rt, GPR64sp:$Rn, simm9:$offset), "stlur">;
+  defm STLURh:  LRCPC3NEONLoadStoreUnscaledOffset<0b01, 0b00, FPR16 ,
+      (outs), (ins FPR16 :$Rt, GPR64sp:$Rn, simm9:$offset), "stlur">;
+  defm STLURs:  LRCPC3NEONLoadStoreUnscaledOffset<0b10, 0b00, FPR32 ,
+      (outs), (ins FPR32 :$Rt, GPR64sp:$Rn, simm9:$offset), "stlur">;
+  defm STLURd:  LRCPC3NEONLoadStoreUnscaledOffset<0b11, 0b00, FPR64 ,
+      (outs), (ins FPR64 :$Rt, GPR64sp:$Rn, simm9:$offset), "stlur">;
+  defm STLURq:  LRCPC3NEONLoadStoreUnscaledOffset<0b00, 0b10, FPR128,
+      (outs), (ins FPR128:$Rt, GPR64sp:$Rn, simm9:$offset), "stlur">;
+  defm LDAPURb: LRCPC3NEONLoadStoreUnscaledOffset<0b00, 0b01, FPR8  ,
+      (outs FPR8  :$Rt), (ins GPR64sp:$Rn, simm9:$offset), "ldapur">;
+  defm LDAPURh: LRCPC3NEONLoadStoreUnscaledOffset<0b01, 0b01, FPR16 ,
+      (outs FPR16 :$Rt), (ins GPR64sp:$Rn, simm9:$offset), "ldapur">;
+  defm LDAPURs: LRCPC3NEONLoadStoreUnscaledOffset<0b10, 0b01, FPR32 ,
+      (outs FPR32 :$Rt), (ins GPR64sp:$Rn, simm9:$offset), "ldapur">;
+  defm LDAPURd: LRCPC3NEONLoadStoreUnscaledOffset<0b11, 0b01, FPR64 ,
+      (outs FPR64 :$Rt), (ins GPR64sp:$Rn, simm9:$offset), "ldapur">;
+  defm LDAPURq: LRCPC3NEONLoadStoreUnscaledOffset<0b00, 0b11, FPR128,
+      (outs FPR128:$Rt), (ins GPR64sp:$Rn, simm9:$offset), "ldapur">;
 
   //                                L
-  def STL1:  LRCPC3NEONLdStSingle<0b0, (outs), (ins VecListOned:$Vt, VectorIndexD:$Q, GPR64sp:$Rn) , "stl1", "">;
-  def LDAP1: LRCPC3NEONLdStSingle<0b1, (outs VecListOned:$dst), (ins VecListOned:$Vt, VectorIndexD:$Q, GPR64sp0:$Rn), "ldap1", "$Vt = $dst">;
+  def STL1:  LRCPC3NEONLdStSingle<0b0,
+      (outs), (ins VecListOned:$Vt, VectorIndexD:$Q, GPR64sp:$Rn),
+      "stl1", "">;
+  def LDAP1: LRCPC3NEONLdStSingle<0b1,
+      (outs VecListOned:$dst),
+      (ins VecListOned:$Vt, VectorIndexD:$Q, GPR64sp0:$Rn),
+      "ldap1", "$Vt = $dst">;
 
   // Aliases for when offset=0
   def : InstAlias<"stl1\t$Vt$Q, [$Rn, #0]", (STL1 VecListOned:$Vt, VectorIndexD:$Q, GPR64sp:$Rn)>;

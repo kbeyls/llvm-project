@@ -2347,6 +2347,7 @@ let Predicates = [HasSVEorSME] in {
     }
   }
 
+// FIXME: add MemScale here.
   // LDR1 of 8-bit data
   defm : LD1RPat<nxv16i8, extloadi8,  LD1RB_IMM,    PTRUE_B, i32, am_indexed8_6b, uimm6s1>;
   defm : LD1RPat<nxv8i16, zextloadi8, LD1RB_H_IMM,  PTRUE_H, i32, am_indexed8_6b, uimm6s1>;
@@ -2422,6 +2423,8 @@ let Predicates = [HasSVEorSME] in {
     def : Pat<(vscale (sve_cntd_imm_neg i32:$imm)), (SUBXrs XZR, (CNTD_XPiI 31, $imm), 0)>;
   }
 
+
+// FIXME: handle scaled SVE load stores.
   let AddedComplexity = 5 in {
     def : Pat<(nxv8i16 (add ZPR:$op, (nxv8i16 (splat_vector (i32 (trunc (vscale (sve_cnth_imm i32:$imm)))))))),
               (INCH_ZPiI ZPR:$op, 31, $imm)>;

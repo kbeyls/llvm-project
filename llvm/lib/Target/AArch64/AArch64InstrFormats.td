@@ -56,6 +56,16 @@ def SMEMatrixTileD : SMEMatrixTypeEnum<4>;
 def SMEMatrixTileQ : SMEMatrixTypeEnum<5>;
 def SMEMatrixArray : SMEMatrixTypeEnum<6>;
 
+class MemScaleEnum<bits<3> val> {
+  bits<3> Value = val;
+}
+def MemScaleNone:   MemScaleEnum<0>;
+def MemScale1byte:  MemScaleEnum<1>;
+def MemScale2byte:  MemScaleEnum<2>;
+def MemScale4byte:  MemScaleEnum<3>;
+def MemScale8byte:  MemScaleEnum<4>;
+def MemScale16byte: MemScaleEnum<5>;
+
 // AArch64 Instruction Format
 let UseNamedOperandTable = 1 in
 class AArch64Inst<Format f, string cstr> : Instruction {
@@ -77,11 +87,13 @@ class AArch64Inst<Format f, string cstr> : Instruction {
   bit isPTestLike = 0;
   bit isPreLdSt = 0;
   bit isPostLdSt = 0;
+  MemScaleEnum MemScale = MemScaleNone;
   FalseLanesEnum FalseLanes = FalseLanesNone;
   DestructiveInstTypeEnum DestructiveInstType = NotDestructive;
   SMEMatrixTypeEnum SMEMatrixType = SMEMatrixNone;
   ElementSizeEnum ElementSize = ElementSizeNone;
 
+  let TSFlags{18-16} = MemScale.Value;
   let TSFlags{15}    = isPostLdSt;
   let TSFlags{14}    = isPreLdSt;
   let TSFlags{13-11} = SMEMatrixType.Value;
@@ -2044,6 +2056,8 @@ class BaseAuthLoad<bit M, bit W, dag oops, dag iops, string asm,
   let Inst{9-5} = Rn;
   let Inst{4-0} = Rt;
 
+  let MemScale = MemScale8byte;
+
   let DecoderMethod = "DecodeAuthLoadInstruction";
 }
 
@@ -3494,7 +3508,7 @@ def uimm12s8 : uimm12_scaled<8>;
 def uimm12s16 : uimm12_scaled<16>;
 
 class BaseLoadStoreUI<bits<2> sz, bit V, bits<2> opc, dag oops, dag iops,
-                      string asm, list<dag> pattern>
+                      string asm, MemScaleEnum scale, list<dag> pattern>
     : I<oops, iops, asm, "\t$Rt, [$Rn, $offset]", "", pattern> {
   bits<5> Rt;
 
@@ -3510,15 +3524,18 @@ class BaseLoadStoreUI<bits<2> sz, bit V, bits<2> opc, dag oops, dag iops,
   let Inst{9-5}   = Rn;
   let Inst{4-0}   = Rt;
 
+  let MemScale = scale;
+
   let DecoderMethod = "DecodeUnsignedLdStInstruction";
 }
 
 multiclass LoadUI<bits<2> sz, bit V, bits<2> opc, DAGOperand regtype,
-                  Operand indextype, string asm, list<dag> pattern> {
+                  Operand indextype, string asm, MemScaleEnum scale,
+                  list<dag> pattern> {
   let AddedComplexity = 10, mayLoad = 1, mayStore = 0, hasSideEffects = 0 in
   def ui : BaseLoadStoreUI<sz, V, opc, (outs regtype:$Rt),
                            (ins GPR64sp:$Rn, indextype:$offset),
-                           asm, pattern>,
+                           asm, scale, pattern>,
            Sched<[WriteLD]>;
 
   def : InstAlias<asm # "\t$Rt, [$Rn]",
@@ -3526,11 +3543,12 @@ multiclass LoadUI<bits<2> sz, bit V, bits<2> opc, DAGOperand regtype,
 }
 
 multiclass StoreUI<bits<2> sz, bit V, bits<2> opc, DAGOperand regtype,
-             Operand indextype, string asm, list<dag> pattern> {
+             Operand indextype, string asm, MemScaleEnum scale,
+             list<dag> pattern> {
   let AddedComplexity = 10, mayLoad = 0, mayStore = 1, hasSideEffects = 0 in
   def ui : BaseLoadStoreUI<sz, V, opc, (outs),
                            (ins regtype:$Rt, GPR64sp:$Rn, indextype:$offset),
-                           asm, pattern>,
+                           asm, scale, pattern>,
            Sched<[WriteST]>;
 
   def : InstAlias<asm # "\t$Rt, [$Rn]",
@@ -3543,11 +3561,11 @@ multiclass StoreUI<bits<2> sz, bit V, bits<2> opc, DAGOperand regtype,
 // TODO: Roll out zero-register subtitution to GPR32/GPR64 and fold this back
 //       into StoreUI.
 multiclass StoreUIz<bits<2> sz, bit V, bits<2> opc, RegisterOperand regtype,
-             Operand indextype, string asm, list<dag> pattern> {
+             Operand indextype, string asm, MemScaleEnum scale, list<dag> pattern> {
   let AddedComplexity = 10, mayLoad = 0, mayStore = 1, hasSideEffects = 0 in
   def ui : BaseLoadStoreUI<sz, V, opc, (outs),
                            (ins regtype:$Rt, GPR64sp:$Rn, indextype:$offset),
-                           asm, pattern>,
+                           asm, scale, pattern>,
            Sched<[WriteST]>;
 
   def : InstAlias<asm # "\t$Rt, [$Rn]",
@@ -3564,10 +3582,11 @@ def prfop : Operand<i32> {
 }
 
 let mayLoad = 0, mayStore = 0, hasSideEffects = 1 in
-class PrefetchUI<bits<2> sz, bit V, bits<2> opc, string asm, list<dag> pat>
+class PrefetchUI<bits<2> sz, bit V, bits<2> opc, string asm,
+                 MemScaleEnum scale, list<dag> pat>
     : BaseLoadStoreUI<sz, V, opc,
                       (outs), (ins prfop:$Rt, GPR64sp:$Rn, uimm12s8:$offset),
-                      asm, pat>,
+                      asm, scale, pat>,
       Sched<[WriteLD]>;
 
 //---
@@ -3728,7 +3747,7 @@ def ro64 : ROAddrMode<ro_Windexed64, ro_Xindexed64, ro_Wextend64, ro_Xextend64>;
 def ro128 : ROAddrMode<ro_Windexed128, ro_Xindexed128, ro_Wextend128,
                        ro_Xextend128>;
 
-// FIXME: this should have PreLDSt set?
+// FIXME: figure out how to set MemScale for these.
 class LoadStore8RO<bits<2> sz, bit V, bits<2> opc, string asm, dag ins,
                    dag outs, list<dag> pat>
     : I<ins, outs, asm, "\t$Rt, [$Rn, $Rm, $extend]", "", pat> {
@@ -3749,6 +3768,14 @@ class LoadStore8RO<bits<2> sz, bit V, bits<2> opc, string asm, dag ins,
   let Inst{11-10} = 0b10;
   let Inst{9-5}   = Rn;
   let Inst{4-0}   = Rt;
+
+  // FIXME: we cannot set the MemScale as a "Tablegen compile-time"
+  // constant, as the same TableGen record could have different
+  // MemScale values, depending on the value of operand "$extend".
+  // Therefore, the proper way to implement this is probably to extend
+  // the TableGen backend to emit code that return the MemScale value.
+  // Does that need to be done in a target-agnostic way though?
+  //let MemScale = !if(extend{0}, MemScale1byte, MemScaleNone);
 }
 
 class ROInstAlias<string asm, DAGOperand regtype, Instruction INST>
@@ -4168,7 +4195,6 @@ def gi_am_unscaled128 :
     GIComplexOperandMatcher<s64, "selectAddrModeUnscaled128">,
     GIComplexPatternEquiv<am_unscaled128>;
 
-
 class BaseLoadStoreUnscale<bits<2> sz, bit V, bits<2> opc, dag oops, dag iops,
                            string asm, list<dag> pattern>
     : I<oops, iops, asm, "\t$Rt, [$Rn, $offset]", "", pattern> {
@@ -4185,6 +4211,8 @@ class BaseLoadStoreUnscale<bits<2> sz, bit V, bits<2> opc, dag oops, dag iops,
   let Inst{11-10} = 0b00;
   let Inst{9-5}   = Rn;
   let Inst{4-0}   = Rt;
+
+  let MemScale = MemScale1byte;
 
   let DecoderMethod = "DecodeSignedLdStInstruction";
 }
@@ -4240,7 +4268,7 @@ multiclass StoreUnscaled<bits<2> sz, bit V, bits<2> opc, DAGOperand regtype,
 
 multiclass PrefetchUnscaled<bits<2> sz, bit V, bits<2> opc, string asm,
                             list<dag> pat> {
-  let mayLoad = 0, mayStore = 0, hasSideEffects = 1 in
+  let mayLoad = 0, mayStore = 0, hasSideEffects = 1, MemScale = MemScale1byte in
   def i : BaseLoadStoreUnscale<sz, V, opc, (outs),
                                (ins prfop:$Rt, GPR64sp:$Rn, simm9:$offset),
                                asm, pat>,
@@ -4276,7 +4304,7 @@ class BaseLoadStoreUnprivileged<bits<2> sz, bit V, bits<2> opc,
 
 multiclass LoadUnprivileged<bits<2> sz, bit V, bits<2> opc,
                             RegisterClass regtype, string asm> {
-  let mayStore = 0, mayLoad = 1, hasSideEffects = 0 in
+  let mayStore = 0, mayLoad = 1, hasSideEffects = 0, MemScale = MemScale1byte in
   def i : BaseLoadStoreUnprivileged<sz, V, opc, (outs regtype:$Rt),
                                     (ins GPR64sp:$Rn, simm9:$offset), asm>,
           Sched<[WriteLD]>;
@@ -4287,7 +4315,7 @@ multiclass LoadUnprivileged<bits<2> sz, bit V, bits<2> opc,
 
 multiclass StoreUnprivileged<bits<2> sz, bit V, bits<2> opc,
                              RegisterClass regtype, string asm> {
-  let mayStore = 1, mayLoad = 0, hasSideEffects = 0 in
+  let mayStore = 1, mayLoad = 0, hasSideEffects = 0, MemScale = MemScale1byte in
   def i : BaseLoadStoreUnprivileged<sz, V, opc, (outs),
                                  (ins regtype:$Rt, GPR64sp:$Rn, simm9:$offset),
                                  asm>,
@@ -4303,7 +4331,8 @@ multiclass StoreUnprivileged<bits<2> sz, bit V, bits<2> opc,
 
 let isPreLdSt = 1 in
 class BaseLoadStorePreIdx<bits<2> sz, bit V, bits<2> opc, dag oops, dag iops,
-                          string asm, string cstr, list<dag> pat>
+                          string asm, string cstr, MemScaleEnum scale,
+                          list<dag> pat>
     : I<oops, iops, asm, "\t$Rt, [$Rn, $offset]!", cstr, pat> {
   bits<5> Rt;
   bits<5> Rn;
@@ -4319,27 +4348,30 @@ class BaseLoadStorePreIdx<bits<2> sz, bit V, bits<2> opc, dag oops, dag iops,
   let Inst{9-5}   = Rn;
   let Inst{4-0}   = Rt;
 
+  let MemScale = scale;
+
   let DecoderMethod = "DecodeSignedLdStInstruction";
 }
 
 let hasSideEffects = 0 in {
 let mayStore = 0, mayLoad = 1 in
 class LoadPreIdx<bits<2> sz, bit V, bits<2> opc, RegisterOperand regtype,
-             string asm>
+                 string asm, MemScaleEnum scale>
     : BaseLoadStorePreIdx<sz, V, opc,
-                     (outs GPR64sp:$wback, regtype:$Rt),
-                     (ins GPR64sp:$Rn, simm9:$offset), asm,
-                     "$Rn = $wback,@earlyclobber $wback", []>,
+        (outs GPR64sp:$wback, regtype:$Rt),
+        (ins GPR64sp:$Rn, simm9:$offset), asm,
+        "$Rn = $wback,@earlyclobber $wback", scale, []>,
       Sched<[WriteAdr, WriteLD]>;
 
 let mayStore = 1, mayLoad = 0 in
 class StorePreIdx<bits<2> sz, bit V, bits<2> opc, RegisterOperand regtype,
-                  string asm, SDPatternOperator storeop, ValueType Ty>
+                  string asm, MemScaleEnum scale, SDPatternOperator storeop,
+                  ValueType Ty>
     : BaseLoadStorePreIdx<sz, V, opc,
-                      (outs GPR64sp:$wback),
-                      (ins regtype:$Rt, GPR64sp:$Rn, simm9:$offset),
-                      asm, "$Rn = $wback,@earlyclobber $wback",
-      [(set GPR64sp:$wback,
+        (outs GPR64sp:$wback),
+        (ins regtype:$Rt, GPR64sp:$Rn, simm9:$offset),
+        asm, "$Rn = $wback,@earlyclobber $wback", scale,
+        [(set GPR64sp:$wback,
             (storeop (Ty regtype:$Rt), GPR64sp:$Rn, simm9:$offset))]>,
       Sched<[WriteAdr, WriteST]>;
 } // hasSideEffects = 0
@@ -4350,7 +4382,8 @@ class StorePreIdx<bits<2> sz, bit V, bits<2> opc, RegisterOperand regtype,
 
 let isPostLdSt = 1 in
 class BaseLoadStorePostIdx<bits<2> sz, bit V, bits<2> opc, dag oops, dag iops,
-                          string asm, string cstr, list<dag> pat>
+                          string asm, string cstr, MemScaleEnum scale,
+                          list<dag> pat>
     : I<oops, iops, asm, "\t$Rt, [$Rn], $offset", cstr, pat> {
   bits<5> Rt;
   bits<5> Rn;
@@ -4366,27 +4399,30 @@ class BaseLoadStorePostIdx<bits<2> sz, bit V, bits<2> opc, dag oops, dag iops,
   let Inst{9-5}   = Rn;
   let Inst{4-0}   = Rt;
 
+  let MemScale = scale;
+
   let DecoderMethod = "DecodeSignedLdStInstruction";
 }
 
 let hasSideEffects = 0 in {
 let mayStore = 0, mayLoad = 1 in
 class LoadPostIdx<bits<2> sz, bit V, bits<2> opc, RegisterOperand regtype,
-             string asm>
+                  string asm, MemScaleEnum scale>
     : BaseLoadStorePostIdx<sz, V, opc,
-                      (outs GPR64sp:$wback, regtype:$Rt),
-                      (ins GPR64sp:$Rn, simm9:$offset),
-                      asm, "$Rn = $wback,@earlyclobber $wback", []>,
+        (outs GPR64sp:$wback, regtype:$Rt),
+        (ins GPR64sp:$Rn, simm9:$offset),
+        asm, "$Rn = $wback,@earlyclobber $wback", scale, []>,
       Sched<[WriteAdr, WriteLD]>;
 
 let mayStore = 1, mayLoad = 0 in
 class StorePostIdx<bits<2> sz, bit V, bits<2> opc, RegisterOperand regtype,
-                   string asm, SDPatternOperator storeop, ValueType Ty>
+                   string asm, MemScaleEnum scale, SDPatternOperator storeop,
+                   ValueType Ty>
     : BaseLoadStorePostIdx<sz, V, opc,
-                      (outs GPR64sp:$wback),
-                      (ins regtype:$Rt, GPR64sp:$Rn, simm9:$offset),
-                       asm, "$Rn = $wback,@earlyclobber $wback",
-      [(set GPR64sp:$wback,
+        (outs GPR64sp:$wback),
+        (ins regtype:$Rt, GPR64sp:$Rn, simm9:$offset),
+        asm, "$Rn = $wback,@earlyclobber $wback", scale,
+        [(set GPR64sp:$wback,
             (storeop (Ty regtype:$Rt), GPR64sp:$Rn, simm9:$offset))]>,
     Sched<[WriteAdr, WriteST]>;
 } // hasSideEffects = 0
@@ -4399,7 +4435,7 @@ class StorePostIdx<bits<2> sz, bit V, bits<2> opc, RegisterOperand regtype,
 // (indexed, offset)
 
 class BaseLoadStorePairOffset<bits<2> opc, bit V, bit L, dag oops, dag iops,
-                              string asm>
+                              string asm, MemScaleEnum scale>
     : I<oops, iops, asm, "\t$Rt, $Rt2, [$Rn, $offset]", "", []> {
   bits<5> Rt;
   bits<5> Rt2;
@@ -4415,15 +4451,19 @@ class BaseLoadStorePairOffset<bits<2> opc, bit V, bit L, dag oops, dag iops,
   let Inst{9-5}   = Rn;
   let Inst{4-0}   = Rt;
 
+  let MemScale = scale;
+
   let DecoderMethod = "DecodePairLdStInstruction";
 }
 
 multiclass LoadPairOffset<bits<2> opc, bit V, RegisterOperand regtype,
-                          Operand indextype, string asm> {
+                          Operand indextype, string asm,
+                          MemScaleEnum Scale> {
   let hasSideEffects = 0, mayStore = 0, mayLoad = 1 in
   def i : BaseLoadStorePairOffset<opc, V, 1,
                                   (outs regtype:$Rt, regtype:$Rt2),
-                                  (ins GPR64sp:$Rn, indextype:$offset), asm>,
+                                  (ins GPR64sp:$Rn, indextype:$offset), asm,
+                                  Scale>,
           Sched<[WriteLD, WriteLDHi]>;
 
   def : InstAlias<asm # "\t$Rt, $Rt2, [$Rn]",
@@ -4433,12 +4473,13 @@ multiclass LoadPairOffset<bits<2> opc, bit V, RegisterOperand regtype,
 
 
 multiclass StorePairOffset<bits<2> opc, bit V, RegisterOperand regtype,
-                           Operand indextype, string asm> {
+                           Operand indextype, string asm,
+                           MemScaleEnum scale> {
   let hasSideEffects = 0, mayLoad = 0, mayStore = 1 in
   def i : BaseLoadStorePairOffset<opc, V, 0, (outs),
                                   (ins regtype:$Rt, regtype:$Rt2,
                                        GPR64sp:$Rn, indextype:$offset),
-                                  asm>,
+                                  asm, scale>,
           Sched<[WriteSTP]>;
 
   def : InstAlias<asm # "\t$Rt, $Rt2, [$Rn]",
@@ -4449,7 +4490,7 @@ multiclass StorePairOffset<bits<2> opc, bit V, RegisterOperand regtype,
 // (pre-indexed)
 let isPreLdSt = 1 in
 class BaseLoadStorePairPreIdx<bits<2> opc, bit V, bit L, dag oops, dag iops,
-                              string asm>
+                              string asm, MemScaleEnum scale>
     : I<oops, iops, asm, "\t$Rt, $Rt2, [$Rn, $offset]!", "$Rn = $wback,@earlyclobber $wback", []> {
   bits<5> Rt;
   bits<5> Rt2;
@@ -4465,32 +4506,35 @@ class BaseLoadStorePairPreIdx<bits<2> opc, bit V, bit L, dag oops, dag iops,
   let Inst{9-5}   = Rn;
   let Inst{4-0}   = Rt;
 
+  let MemScale = scale;
+
   let DecoderMethod = "DecodePairLdStInstruction";
 }
 
 let hasSideEffects = 0 in {
 let mayStore = 0, mayLoad = 1 in
 class LoadPairPreIdx<bits<2> opc, bit V, RegisterOperand regtype,
-                     Operand indextype, string asm>
+                     Operand indextype, string asm, MemScaleEnum scale>
     : BaseLoadStorePairPreIdx<opc, V, 1,
                               (outs GPR64sp:$wback, regtype:$Rt, regtype:$Rt2),
-                              (ins GPR64sp:$Rn, indextype:$offset), asm>,
+                              (ins GPR64sp:$Rn, indextype:$offset), asm,
+                              scale>,
       Sched<[WriteAdr, WriteLD, WriteLDHi]>;
 
 let mayStore = 1, mayLoad = 0 in
 class StorePairPreIdx<bits<2> opc, bit V, RegisterOperand regtype,
-                      Operand indextype, string asm>
+                      Operand indextype, string asm, MemScaleEnum scale>
     : BaseLoadStorePairPreIdx<opc, V, 0, (outs GPR64sp:$wback),
                              (ins regtype:$Rt, regtype:$Rt2,
                                   GPR64sp:$Rn, indextype:$offset),
-                             asm>,
+                             asm, scale>,
       Sched<[WriteAdr, WriteSTP]>;
 } // hasSideEffects = 0
 
 // (post-indexed)
 let isPostLdSt = 1 in
 class BaseLoadStorePairPostIdx<bits<2> opc, bit V, bit L, dag oops, dag iops,
-                              string asm>
+                              string asm, MemScaleEnum scale>
     : I<oops, iops, asm, "\t$Rt, $Rt2, [$Rn], $offset", "$Rn = $wback,@earlyclobber $wback", []> {
   bits<5> Rt;
   bits<5> Rt2;
@@ -4506,32 +4550,34 @@ class BaseLoadStorePairPostIdx<bits<2> opc, bit V, bit L, dag oops, dag iops,
   let Inst{9-5}   = Rn;
   let Inst{4-0}   = Rt;
 
+  let MemScale = scale;
+
   let DecoderMethod = "DecodePairLdStInstruction";
 }
 
 let hasSideEffects = 0 in {
 let mayStore = 0, mayLoad = 1 in
 class LoadPairPostIdx<bits<2> opc, bit V, RegisterOperand regtype,
-                      Operand idxtype, string asm>
+                      Operand idxtype, string asm, MemScaleEnum scale>
     : BaseLoadStorePairPostIdx<opc, V, 1,
                               (outs GPR64sp:$wback, regtype:$Rt, regtype:$Rt2),
-                              (ins GPR64sp:$Rn, idxtype:$offset), asm>,
+                              (ins GPR64sp:$Rn, idxtype:$offset), asm, scale>,
       Sched<[WriteAdr, WriteLD, WriteLDHi]>;
 
 let mayStore = 1, mayLoad = 0 in
 class StorePairPostIdx<bits<2> opc, bit V, RegisterOperand regtype,
-                       Operand idxtype, string asm>
+                       Operand idxtype, string asm, MemScaleEnum scale>
     : BaseLoadStorePairPostIdx<opc, V, 0, (outs GPR64sp:$wback),
                              (ins regtype:$Rt, regtype:$Rt2,
                                   GPR64sp:$Rn, idxtype:$offset),
-                             asm>,
+                             asm, scale>,
       Sched<[WriteAdr, WriteSTP]>;
 } // hasSideEffects = 0
 
 //  (no-allocate)
 
 class BaseLoadStorePairNoAlloc<bits<2> opc, bit V, bit L, dag oops, dag iops,
-                              string asm>
+                              string asm, MemScaleEnum scale>
     : I<oops, iops, asm, "\t$Rt, $Rt2, [$Rn, $offset]", "", []> {
   bits<5> Rt;
   bits<5> Rt2;
@@ -4547,15 +4593,19 @@ class BaseLoadStorePairNoAlloc<bits<2> opc, bit V, bit L, dag oops, dag iops,
   let Inst{9-5}   = Rn;
   let Inst{4-0}   = Rt;
 
+  let MemScale = scale;
+
   let DecoderMethod = "DecodePairLdStInstruction";
 }
 
 multiclass LoadPairNoAlloc<bits<2> opc, bit V, DAGOperand regtype,
-                           Operand indextype, string asm> {
+                           Operand indextype, string asm,
+                           MemScaleEnum scale> {
   let hasSideEffects = 0, mayStore = 0, mayLoad = 1 in
   def i : BaseLoadStorePairNoAlloc<opc, V, 1,
                                    (outs regtype:$Rt, regtype:$Rt2),
-                                   (ins GPR64sp:$Rn, indextype:$offset), asm>,
+                                   (ins GPR64sp:$Rn, indextype:$offset), asm,
+                                   scale>,
           Sched<[WriteLD, WriteLDHi]>;
 
 
@@ -4565,12 +4615,13 @@ multiclass LoadPairNoAlloc<bits<2> opc, bit V, DAGOperand regtype,
 }
 
 multiclass StorePairNoAlloc<bits<2> opc, bit V, DAGOperand regtype,
-                      Operand indextype, string asm> {
+                      Operand indextype, string asm,
+                      MemScaleEnum scale> {
   let hasSideEffects = 0, mayStore = 1, mayLoad = 0 in
   def i : BaseLoadStorePairNoAlloc<opc, V, 0, (outs),
                                    (ins regtype:$Rt, regtype:$Rt2,
                                         GPR64sp:$Rn, indextype:$offset),
-                                   asm>,
+                                   asm, scale>,
           Sched<[WriteSTP]>;
 
   def : InstAlias<asm # "\t$Rt, $Rt2, [$Rn]",
@@ -4607,6 +4658,8 @@ class BaseLoadStoreExclusive<bits<2> sz, bit o2, bit L, bit o1, bit o0,
   let Inst{22}    = L;
   let Inst{21}    = o1;
   let Inst{15}    = o0;
+
+  // FIXME: needs MemScale?
 
   let DecoderMethod = "DecodeExclusiveLdStInstruction";
 }
@@ -4706,7 +4759,8 @@ class StoreExclusivePair<bits<2> sz, bit o2, bit L, bit o1, bit o0,
 
 // Armv8.5-A Memory Tagging Extension
 class BaseMemTag<bits<2> opc1, bits<2> opc2, string asm_insn,
-                 string asm_opnds, string cstr, dag oops, dag iops>
+                 string asm_opnds, MemScaleEnum scale, string cstr, dag oops,
+                 dag iops>
     : I<oops, iops, asm_insn, asm_opnds, cstr, []>,
       Sched<[]> {
   bits<5> Rn;
@@ -4718,11 +4772,13 @@ class BaseMemTag<bits<2> opc1, bits<2> opc2, string asm_insn,
   let Inst{11-10} = opc2;
   let Inst{9-5}   = Rn;
   // Inst{4-0} defined by subclass
+
+  let MemScale = scale;
 }
 
 class MemTagVector<bit Load, string asm_insn, string asm_opnds,
                    dag oops, dag iops>
-    : BaseMemTag<{0b1, Load}, 0b00, asm_insn, asm_opnds,
+    : BaseMemTag<{0b1, Load}, 0b00, asm_insn, asm_opnds, MemScale16byte, // FIXME: check this.
                   "", oops, iops> {
   bits<5> Rt;
 
@@ -4733,7 +4789,8 @@ class MemTagVector<bit Load, string asm_insn, string asm_opnds,
 }
 
 class MemTagLoad<string asm_insn, string asm_opnds>
-    : BaseMemTag<0b01, 0b00, asm_insn, asm_opnds, "$Rt = $wback",
+    : BaseMemTag<0b01, 0b00, asm_insn, asm_opnds, MemScale16byte,
+                 "$Rt = $wback",
                  (outs GPR64:$wback),
                  (ins GPR64:$Rt, GPR64sp:$Rn, simm9s16:$offset)> {
   bits<5> Rt;
@@ -4747,7 +4804,8 @@ class MemTagLoad<string asm_insn, string asm_opnds>
 
 class BaseMemTagStore<bits<2> opc1, bits<2> opc2, string asm_insn,
                      string asm_opnds, string cstr, dag oops, dag iops>
-    : BaseMemTag<opc1, opc2, asm_insn, asm_opnds, cstr, oops, iops> {
+    : BaseMemTag<opc1, opc2, asm_insn, asm_opnds, MemScale16byte,// FIXME: chek this
+                 cstr, oops, iops> {
   bits<5> Rt;
   bits<9> offset;
 
@@ -12118,7 +12176,8 @@ multiclass ComparisonOp<bit isUnsigned, bit isMin, string asm,
 //---
 
 class BaseLRCPC3<bits<2> size, bit V, bits<2> opc, dag oops, dag iops,
-                 string asm, string operands, string cstr = "">
+                 string asm, string operands, MemScaleEnum scale,
+                 string cstr = "">
       : I<oops, iops, asm, operands, cstr, []>,
         Sched<[WriteAtomic]> {
   bits<5> Rt;
@@ -12135,28 +12194,34 @@ class BaseLRCPC3<bits<2> size, bit V, bits<2> opc, dag oops, dag iops,
   let mayLoad = Inst{22};
   let mayStore = !not(Inst{22});
   let hasSideEffects = 0;
+
+  let MemScale = scale;
 }
 
 class BaseLRCPC3IntegerLoadStorePair<bits<2> size, bits<2> opc, bits<4> opc2,
                                      dag oops, dag iops, string asm,
-                                     string operands, string cstr>
-      : BaseLRCPC3<size, /*V*/0, opc, oops, iops, asm, operands, cstr> {
+                                     string operands, MemScaleEnum scale,
+                                     string cstr>
+      : BaseLRCPC3<size, /*V*/0, opc, oops, iops, asm, operands, scale, cstr> {
   bits<5> Rt2;
   let Inst{20-16} = Rt2;
   let Inst{15-12} = opc2;
 }
 
 class BaseLRCPC3IntegerLoadStore<bits<2> size, bits<2> opc, dag oops, dag iops,
-                                 string asm, string operands, string cstr>
-      : BaseLRCPC3<size, /*V*/0, opc, oops, iops, asm, operands, cstr> {
+                                 string asm, string operands,
+                                 MemScaleEnum scale, string cstr>
+      : BaseLRCPC3<size, /*V*/0, opc, oops, iops, asm, operands, scale, cstr> {
   let Inst{20-12} = 0b000000000; // imm9
 }
 
-multiclass LRCPC3NEONLoadStoreUnscaledOffset<bits<2> size, bits<2> opc, RegisterClass regtype,
+multiclass LRCPC3NEONLoadStoreUnscaledOffset<bits<2> size, bits<2> opc,
+                                             RegisterClass regtype,
                                              dag oops, dag iops, string asm> {
-  def i : BaseLRCPC3<size, /*V*/1, opc, oops, iops, asm, "\t$Rt, [$Rn{, $simm}]", /*cstr*/""> {
-    bits<9> simm; // signed immediate encoded in imm9=Rt2:imm4
-    let Inst{20-12} = simm;
+  def i : BaseLRCPC3<size, /*V*/1, opc, oops, iops, asm,
+                    "\t$Rt, [$Rn{, $offset}]", MemScale1byte, /*cstr*/""> {
+    bits<9> offset; // signed immediate encoded in imm9=Rt2:imm4
+    let Inst{20-12} = offset;
   }
 
   def a : InstAlias<asm # "\t$Rt, [$Rn]",

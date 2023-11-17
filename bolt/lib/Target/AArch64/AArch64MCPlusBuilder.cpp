@@ -309,7 +309,7 @@ public:
       if (OffsetOpIdx == -1 || !Inst.getOperand(OffsetOpIdx).isImm())
         return Res;
       int64_t Offset = Inst.getOperand(OffsetOpIdx).getImm() *
-                       AArch64InstrInfo::getMemScale(Opc);
+                       AArch64MCInstrInfo::getOffsetScale(*Info, Opc);
       Res.IsPreIndexOffsetChange = AArch64MCInstrInfo::isPreLdStOpcode(*Info, Opc);
       Res.FromReg = Res.ToReg = Inst.getOperand(BaseOpIdx).getReg();
       Res.MaxOffsetChange = Res.OffsetChange = Offset;
@@ -394,7 +394,7 @@ public:
     if (OffsetOpIdx == -1 || !Inst.getOperand(OffsetOpIdx).isImm())
       return false;
     int64_t Offset = Inst.getOperand(OffsetOpIdx).getImm() *
-                     AArch64InstrInfo::getMemScale(Opc);
+                     AArch64MCInstrInfo::getOffsetScale(*Info, Opc);
     if (AArch64MCInstrInfo::isPostLdStOpcode(*Info, Opc))
       StackOffset = 0;
     else

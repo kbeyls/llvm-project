@@ -77,7 +77,7 @@ std::optional<RegImmPair> isAddImmediate(const InstClass &MI, Register& DstReg) 
 
 bool isPreLdStOpcode(const MCInstrInfo& MII, unsigned Opc);
 bool isPostLdStOpcode(const MCInstrInfo& MII, unsigned Opc);
-
+int getOffsetScale(const MCInstrInfo& MII, unsigned Opc);
 } // namespace AArch64MCInstrInfo
 
 class AArch64InstrInfo final : public AArch64GenInstrInfo {
@@ -643,6 +643,7 @@ static inline unsigned getPACOpcodeForKey(AArch64PACKey::ID K, bool Zero) {
 #define TSFLAG_INSTR_FLAGS(X)           ((X) << 9)  // 2-bits
 #define TSFLAG_SME_MATRIX_TYPE(X)       ((X) << 11) // 3-bits
 #define TSFLAG_LD_PREPOST_FLAGS(X)      ((X) << 14) // 2-bits
+#define TSFLAG_MEMSCALE(X)              ((X) << 16) // 3-bits
 // }
 
 namespace AArch64 {
@@ -693,6 +694,16 @@ enum SMEMatrixType {
   SMEMatrixTileD    = TSFLAG_SME_MATRIX_TYPE(0x4),
   SMEMatrixTileQ    = TSFLAG_SME_MATRIX_TYPE(0x5),
   SMEMatrixArray    = TSFLAG_SME_MATRIX_TYPE(0x6),
+};
+
+enum MemScale {
+  MemScaleMask   = TSFLAG_MEMSCALE(0x7),
+  MemScaleNone   = TSFLAG_MEMSCALE(0x0),
+  MemScale1byte  = TSFLAG_MEMSCALE(0x1),
+  MemScale2byte  = TSFLAG_MEMSCALE(0x2),
+  MemScale4byte  = TSFLAG_MEMSCALE(0x3),
+  MemScale8byte  = TSFLAG_MEMSCALE(0x4),
+  MemScale16byte = TSFLAG_MEMSCALE(0x5),
 };
 
 #undef TSFLAG_ELEMENT_SIZE_TYPE
