@@ -49,8 +49,14 @@ void doForAllPreds(const BinaryBasicBlock &BB,
                    std::function<void(ProgramPoint)> Task) {
   MCPlusBuilder *MIB = BB.getFunction()->getBinaryContext().MIB.get();
   for (BinaryBasicBlock *Pred : BB.predecessors()) {
-    if (Pred->isValid())
+    if (Pred->isValid()) {
+      LLVM_DEBUG({
+        dbgs() << "\n DoForAllPreds calling Task on ("
+               << BB.getName() << ", " << Pred->getName()
+               << ")" << "\n";
+      });
       Task(ProgramPoint::getLastPointAt(*Pred));
+    }
   }
   if (!BB.isLandingPad())
     return;
@@ -70,8 +76,14 @@ void doForAllPreds(const BinaryBasicBlock &BB,
 void doForAllSuccs(const BinaryBasicBlock &BB,
                    std::function<void(ProgramPoint)> Task) {
   for (BinaryBasicBlock *Succ : BB.successors())
-    if (Succ->isValid())
+    if (Succ->isValid()) {
+      LLVM_DEBUG({
+        dbgs() << "\n DoForAllSuccs calling Task on ("
+               << BB.getName() << ", " << Succ->getName()
+               << ")" << "\n";
+      });
       Task(ProgramPoint::getFirstPointAt(*Succ));
+    }
 }
 
 void RegStatePrinter::print(raw_ostream &OS, const BitVector &State) const {

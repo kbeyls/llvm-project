@@ -78,14 +78,21 @@ struct State {
   /// RegMaxValues stores registers that we know have a value in the
   /// range [0, MaxValue-1].
   SmallDenseMap<MCPhysReg, uint64_t, 1> RegMaxValues;
-  /// RegsFixedOffsetFromOrigSP contains the registers that contain the value
-  /// of the original SP at the function start, or a fixed offset from it.
+  /// Reg2MaxOffset contains the registers that contain the value
+  /// of SP at some point during the running function, where it's
+  /// guaranteed that at the time the SP value was stored in the register,
+  /// a maximum offset for any probe into the stack is a constant.
+  /// That constant is stored in this map.
+  ///
   /// This is especially useful to recognize frame pointers and the fact
   /// that epilogues can restore stack pointers from frame pointer values.
   /// This is only tracked in Basic Blocks that are known to be reachable
   /// from an entry block. For blocks not (yet) known to be reachable from
   /// an entry block, the optional does not contain a value.
-  std::optional<SmallSet<MCPhysReg, 2>> RegsFixedOffsetFromOrigSP;
+  std::optional<SmallDenseMap<MCPhysReg, int64_t, 2>> Reg2MaxOffset;
+  // FIXME: It seems that conceptually it does not make sense to
+  // track wheterh the SP value is currently at a fixed offset from
+  // the value it was at function entry.
   /// SPFixedOffsetFromOrig indicates whether the current SP value is
   /// a constant fixed offset from the SP value at the function start.
   std::optional<int64_t> SPFixedOffsetFromOrig;
@@ -131,16 +138,17 @@ struct State {
     else if (*SPFixedOffsetFromOrig != *StateIn.SPFixedOffsetFromOrig)
       SPFixedOffsetFromOrig.reset();
 
-    if (StateIn.RegsFixedOffsetFromOrigSP && RegsFixedOffsetFromOrigSP) {
-      SmallVector<MCPhysReg, 2> RegsToRemove;
-      for (MCPhysReg R : *RegsFixedOffsetFromOrigSP)
-        if (!StateIn.RegsFixedOffsetFromOrigSP->contains(R))
-          RegsToRemove.push_back(R);
-      for (MCPhysReg R : RegsToRemove)
-        RegsFixedOffsetFromOrigSP->erase(R);
-    } else if (StateIn.RegsFixedOffsetFromOrigSP &&
-               !RegsFixedOffsetFromOrigSP) {
-      RegsFixedOffsetFromOrigSP = StateIn.RegsFixedOffsetFromOrigSP;
+    if (StateIn.Reg2MaxOffset && Reg2MaxOffset) {
+      SmallDenseMap<MCPhysReg, int64_t, 2> MergedMap;
+      for (auto R2MaxOff : *Reg2MaxOffset) {
+        const MCPhysReg R = R2MaxOff.first;
+        if (auto SIn_R2MaxOff = StateIn.Reg2MaxOffset->find(R);
+            SIn_R2MaxOff != StateIn.Reg2MaxOffset->end())
+          MergedMap[R] = std::max(R2MaxOff.second, SIn_R2MaxOff->second);
+      }
+      Reg2MaxOffset = MergedMap;
+    } else if (StateIn.Reg2MaxOffset && !Reg2MaxOffset) {
+      Reg2MaxOffset = StateIn.Reg2MaxOffset;
     }
 
     for (auto I : StateIn.LastStackGrowingInsts)
@@ -152,7 +160,7 @@ struct State {
            RegConstValues == RHS.RegConstValues &&
            RegMaxValues == RHS.RegMaxValues &&
            SPFixedOffsetFromOrig == RHS.SPFixedOffsetFromOrig &&
-           RegsFixedOffsetFromOrigSP == RHS.RegsFixedOffsetFromOrigSP;
+           Reg2MaxOffset == RHS.Reg2MaxOffset;
   }
   bool operator!=(const State &RHS) const { return !((*this) == RHS); }
 };
@@ -168,8 +176,8 @@ void print_reg(raw_ostream &OS, MCPhysReg Reg, const BinaryContext *BC) {
   }
 }
 
-void PrintRegMap(raw_ostream &OS,
-                 const SmallDenseMap<MCPhysReg, uint64_t, 1> &M,
+template <class T, unsigned N>
+void PrintRegMap(raw_ostream &OS, const SmallDenseMap<MCPhysReg, T, N> &M,
                  const BinaryContext *BC = nullptr) {
   for (auto Reg2Value : M) {
     print_reg(OS, Reg2Value.first, BC);
@@ -185,18 +193,15 @@ raw_ostream &print_state(raw_ostream &OS, const State &S,
   else
     OS << *(S.MaxOffsetSinceLastProbe);
   OS << "), RegConstValues(";
-  PrintRegMap(OS, S.RegConstValues);
+  PrintRegMap(OS, S.RegConstValues, BC);
   OS << "), RegMaxValues(";
-  PrintRegMap(OS, S.RegMaxValues);
+  PrintRegMap(OS, S.RegMaxValues, BC);
   OS << "),";
   OS << "SPFixedOffsetFromOrig:" << S.SPFixedOffsetFromOrig << ",";
-  OS << "RegsFixedOffsetFromOrigSP:";
-  if (S.RegsFixedOffsetFromOrigSP) {
+  OS << "Reg2MaxOffset:";
+  if (S.Reg2MaxOffset) {
     OS << "(";
-    for (auto Reg : *S.RegsFixedOffsetFromOrigSP) {
-      print_reg(OS, Reg, BC);
-      OS << ",";
-    }
+    PrintRegMap(OS, *S.Reg2MaxOffset, BC);
     OS << ")";
   } else
     OS << "None";
@@ -243,7 +248,7 @@ protected:
   State getStartingStateAtBB(const BinaryBasicBlock &BB) {
     State Next;
     if (BB.isEntryPoint())
-      Next.RegsFixedOffsetFromOrigSP = SmallSet<MCPhysReg, 2>();
+      Next.Reg2MaxOffset = SmallDenseMap<MCPhysReg, int64_t, 2>();
     return Next;
   }
 
@@ -351,16 +356,29 @@ protected:
     MCPhysReg FixedOffsetRegJustSet = BC.MIB->getNoRegister();
     if (auto OC = BC.MIB->getOffsetChange(Point, Cur.RegConstValues,
                                           Cur.RegMaxValues))
-      if (Next.RegsFixedOffsetFromOrigSP)
-        if (OC.FromReg == SP ||
-            Cur.RegsFixedOffsetFromOrigSP->contains(OC.FromReg)) {
-          Next.RegsFixedOffsetFromOrigSP->insert(OC.ToReg);
+      if (Next.Reg2MaxOffset) {
+        if (OC.FromReg == SP) {
+          (*Next.Reg2MaxOffset)[OC.ToReg] = *Cur.MaxOffsetSinceLastProbe;
+          FixedOffsetRegJustSet = OC.ToReg;
+        } else if (auto I = Cur.Reg2MaxOffset->find(OC.FromReg);
+                   I != Cur.Reg2MaxOffset->end()) {
+          (*Next.Reg2MaxOffset)[OC.ToReg] = (*I).second;
           FixedOffsetRegJustSet = OC.ToReg;
         }
-    if (Next.RegsFixedOffsetFromOrigSP)
-      for (const MCOperand &Operand : BC.MIB->defOperands(Point))
-        if (Operand.getReg() != FixedOffsetRegJustSet)
-          Next.RegsFixedOffsetFromOrigSP->erase(Operand.getReg());
+      }
+    if (Next.Reg2MaxOffset)
+      for (const MCOperand &Operand : BC.MIB->defOperands(Point)) {
+        if (Operand.getReg() != FixedOffsetRegJustSet) {
+          Next.Reg2MaxOffset->erase(Operand.getReg());
+          LLVM_DEBUG({
+            dbgs() << "   - Removed Reg " << Operand.getReg()
+                   << " from Next.Reg2MaxOffset"
+                   << ". On instruction:";
+            BC.printInstruction(dbgs(), Point);
+            dbgs() << "\n";
+          });
+        }
+      }
 
     if (BC.MIB->hasDefOfPhysReg(Point, SP)) {
       // Next, validate that  we can track by how much the SP
@@ -371,37 +389,46 @@ protected:
       Next.LastStackGrowingInsts.insert(MCInstInBBReference::get(&Point, BF));
       if (auto OC = BC.MIB->getOffsetChange(Point, Cur.RegConstValues,
                                             Cur.RegMaxValues);
-          OC && OC.ToReg == SP && OC.FromReg == SP) {
-        assert(OC.MaxOffsetChange);
-        if (*OC.MaxOffsetChange < 0)
-          Next.MaxOffsetSinceLastProbe =
-              *Next.MaxOffsetSinceLastProbe - *OC.MaxOffsetChange;
-        if (OC.OffsetChange && Next.SPFixedOffsetFromOrig)
-          Next.SPFixedOffsetFromOrig =
-              *Next.SPFixedOffsetFromOrig + *OC.OffsetChange;
-          // FIXME: add test case for this if test.
+          OC && OC.ToReg == SP) {
+        if (OC.FromReg == SP) {
+          assert(OC.MaxOffsetChange);
+          if (*OC.MaxOffsetChange < 0)
+            Next.MaxOffsetSinceLastProbe =
+                *Next.MaxOffsetSinceLastProbe - *OC.MaxOffsetChange;
+          if (OC.OffsetChange && Next.SPFixedOffsetFromOrig)
+            Next.SPFixedOffsetFromOrig =
+                *Next.SPFixedOffsetFromOrig + *OC.OffsetChange;
+            // FIXME: add test case for this if test.
 #if 0
         if (IsPreIndexOffsetChange)
           Next.MaxOffsetSinceLastProbe =
               *Next.MaxOffsetSinceLastProbe - StackAccessOffset;
 #endif
-        LLVM_DEBUG({
-          dbgs() << "  Found SP Offset change: ";
-          BC.printInstruction(dbgs(), Point);
-          dbgs() << "    OffsetChange: " << OC.OffsetChange
-                 << "; MaxOffsetChange: " << OC.MaxOffsetChange
-                 << "; new MaxOffsetSinceLastProbe: "
-                 << Next.MaxOffsetSinceLastProbe
-                 << "; new SPFixedOffsetFromOrig: "
-                 << Next.SPFixedOffsetFromOrig
-                 << "; IsStackAccess:" << IsStackAccess
-                 << "; StackAccessOffset: " << StackAccessOffset << "\n";
-        });
-        assert(!OC.IsPreIndexOffsetChange || IsStackAccess);
-        assert(*Next.MaxOffsetSinceLastProbe >= 0);
+          LLVM_DEBUG({
+            dbgs() << "  Found SP Offset change: ";
+            BC.printInstruction(dbgs(), Point);
+            dbgs() << "    OffsetChange: " << OC.OffsetChange
+                   << "; MaxOffsetChange: " << OC.MaxOffsetChange
+                   << "; new MaxOffsetSinceLastProbe: "
+                   << Next.MaxOffsetSinceLastProbe
+                   << "; new SPFixedOffsetFromOrig: "
+                   << Next.SPFixedOffsetFromOrig
+                   << "; IsStackAccess:" << IsStackAccess
+                   << "; StackAccessOffset: " << StackAccessOffset << "\n";
+          });
+          assert(!OC.IsPreIndexOffsetChange || IsStackAccess);
+          assert(*Next.MaxOffsetSinceLastProbe >= 0);
+        } else if (
+            Cur.Reg2MaxOffset && Cur.Reg2MaxOffset->contains(OC.FromReg) &&
+            OC.OffsetChange ==
+                0 /* FIXME: also handle other offset changes if needed. */) {
+          const int64_t MaxOffset = Cur.Reg2MaxOffset->find(OC.FromReg)->second;
+          Next.MaxOffsetSinceLastProbe = MaxOffset;
+        }
       } else {
         Next.MaxOffsetSinceLastProbe.reset();
-        Next.SPFixedOffsetFromOrig.reset();
+        Next.SPFixedOffsetFromOrig
+            .reset(); // FIXME - should I make this the empty set?
         LLVM_DEBUG({
           dbgs() << "  Found non-const SP Offset change: ";
           BC.printInstruction(dbgs(), Point);
@@ -480,10 +507,12 @@ void StackClashAnalysis::runOnFunction(
           // function into the SP, then we know this is probably fine.
           // Typical case is moving the frame pointer to the stack pointer
           // in the function epilogue.
-          bool IsFixedRegToSPMove =
-              OC && OC.ToReg == SP && S.RegsFixedOffsetFromOrigSP &&
-              S.RegsFixedOffsetFromOrigSP->contains(OC.FromReg);
-          if (!IsFixedRegToSPMove) {
+          bool IsFixedRegToSPMove = OC && OC.ToReg == SP && S.Reg2MaxOffset &&
+                                    S.Reg2MaxOffset->contains(OC.FromReg);
+          if (IsFixedRegToSPMove) {
+            S.MaxOffsetSinceLastProbe =
+                S.Reg2MaxOffset->find(OC.FromReg)->second;
+          } else {
             // mark to report that this may be an SP change that is not a
             // constant amount.
             LLVM_DEBUG({

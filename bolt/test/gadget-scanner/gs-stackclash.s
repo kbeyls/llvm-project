@@ -153,6 +153,49 @@ f_recognize_fp_deadcode:
 
 // CHECK-NOT: GS-STACKCLASH:
 
+        .global f_alloca_in_loop
+        .type   f_alloca_in_loop, %function
+f_alloca_in_loop:
+        stp     x29, x30, [sp, -32]!
+        mov     x29, sp
+        stp     x19, x20, [sp, 16]
+        mov     x19, x0
+        sub     sp, sp, #16
+.L6:
+        add     x1, x19, 15
+        mov     x20, sp
+        and     x2, x1, -65536
+        and     x1, x1, -16
+        sub     x2, sp, x2
+        cmp     sp, x2
+        beq     .L4
+.L16:
+        sub     sp, sp, #65536
+        str     xzr, [sp, 1024]
+        cmp     sp, x2
+        bne     .L16
+.L4:
+        and     x1, x1, 65535
+        sub     sp, sp, x1
+        str     xzr, [sp]
+        cmp     x1, 1024
+        bcc     .L5
+        str     xzr, [sp, 1024]
+.L5:
+        add     x0, sp, 16
+        bl      g
+        subs    x19, x19, #1
+        mov     sp, x20       // There should not be a warning here.
+        bne     .L6
+        mov     sp, x29
+        ldp     x19, x20, [sp, 16]
+        ldp     x29, x30, [sp], 32
+        ret
+        .size   f_alloca_in_loop, .-f_alloca_in_loop
+
+// CHECK-NOT: GS-STACKCLASH:
+
+// TODO: also add a test case with nested alloca loops.
 
 // TODO: check access with constant offset from SP through other
 //       register:
