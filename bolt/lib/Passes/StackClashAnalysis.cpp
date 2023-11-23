@@ -19,6 +19,8 @@
 #include "llvm/MC/MCInst.h"
 #include "llvm/Support/Format.h"
 
+#include <limits>
+
 #define DEBUG_TYPE "bolt-stackclash"
 
 namespace llvm {
@@ -68,6 +70,51 @@ bool addToMaxMap(SmallDenseMap<MCPhysReg, uint64_t, 1> &M, MCPhysReg R,
   }
 }
 
+class MaxOffsetT {
+private:
+  int64_t V;
+  // FIXME: should I add an "iteration count", and allow
+  // "max" to be computed a few times. But if it's being
+  // computed too many times, give up?
+
+public:
+  MaxOffsetT() : V(Bottom().V) {}
+  MaxOffsetT(int64_t O) : V(O) {}
+  static MaxOffsetT Top() { return std::numeric_limits<int64_t>::max(); }
+  static MaxOffsetT Bottom() { return std::numeric_limits<int64_t>::min(); }
+  static MaxOffsetT doConfluence(const MaxOffsetT O1, const MaxOffsetT O2) {
+    if (O1 == O2)
+      return O1;
+    if (O1 == Bottom())
+      return O2;
+    if (O2 == Bottom())
+      return O1;
+    return Top();
+  }
+  MaxOffsetT operator+(const int64_t Offset) const {
+    assert(*this != Bottom());
+    if (*this == Top())
+      return Top();
+    return MaxOffsetT(V + Offset);
+  }
+  bool operator==(const MaxOffsetT RHS) const { return V == RHS.V; }
+  bool operator!=(const MaxOffsetT RHS) const { return !(*this == RHS); }
+  int64_t getIntValue() const {
+    assert(*this != Bottom() && *this != Top());
+    return V;
+  }
+};
+
+raw_ostream &operator<<(raw_ostream &OS, MaxOffsetT O) {
+  if (O == MaxOffsetT::Top())
+    OS << "(T)";
+  else if (O == MaxOffsetT::Bottom())
+    OS << "(B)";
+  else
+    OS << O.getIntValue();
+  return OS;
+}
+
 struct State {
   // Store the maximum possible offset to which the stack extends
   // beyond the furthest probe seen.
@@ -89,7 +136,7 @@ struct State {
   /// This is only tracked in Basic Blocks that are known to be reachable
   /// from an entry block. For blocks not (yet) known to be reachable from
   /// an entry block, the optional does not contain a value.
-  std::optional<SmallDenseMap<MCPhysReg, int64_t, 2>> Reg2MaxOffset;
+  std::optional<SmallDenseMap<MCPhysReg, MaxOffsetT, 2>> Reg2MaxOffset;
   // FIXME: It seems that conceptually it does not make sense to
   // track wheterh the SP value is currently at a fixed offset from
   // the value it was at function entry.
@@ -139,12 +186,18 @@ struct State {
       SPFixedOffsetFromOrig.reset();
 
     if (StateIn.Reg2MaxOffset && Reg2MaxOffset) {
-      SmallDenseMap<MCPhysReg, int64_t, 2> MergedMap;
+      SmallDenseMap<MCPhysReg, MaxOffsetT, 2> MergedMap;
       for (auto R2MaxOff : *Reg2MaxOffset) {
         const MCPhysReg R = R2MaxOff.first;
         if (auto SIn_R2MaxOff = StateIn.Reg2MaxOffset->find(R);
-            SIn_R2MaxOff != StateIn.Reg2MaxOffset->end())
-          MergedMap[R] = std::max(R2MaxOff.second, SIn_R2MaxOff->second);
+            SIn_R2MaxOff != StateIn.Reg2MaxOffset->end()) {
+          MaxOffsetT MaxOff1 = R2MaxOff.second;
+          MaxOffsetT MaxOff2 = SIn_R2MaxOff->second;
+          MergedMap[R] = MaxOffsetT::doConfluence(MaxOff1, MaxOff2);
+#if 0
+          std::max(R2MaxOff.second, SIn_R2MaxOff->second);
+#endif
+        }
       }
       Reg2MaxOffset = MergedMap;
     } else if (StateIn.Reg2MaxOffset && !Reg2MaxOffset) {
@@ -266,8 +319,7 @@ bool checkNonConstSPOffsetChange(const BinaryContext &BC, BinaryFunction &BF,
                    << "; new MaxOffsetSinceLastProbe: "
                    << Next->MaxOffsetSinceLastProbe
                    << "; new SPFixedOffsetFromOrig: "
-                   << Next->SPFixedOffsetFromOrig
-                   << "\n";
+                   << Next->SPFixedOffsetFromOrig << "\n";
           });
         }
         // assert(!OC.IsPreIndexOffsetChange || IsStackAccess);
@@ -276,10 +328,21 @@ bool checkNonConstSPOffsetChange(const BinaryContext &BC, BinaryFunction &BF,
       } else if (Cur.Reg2MaxOffset && Cur.Reg2MaxOffset->contains(OC.FromReg) &&
                  OC.OffsetChange) {
         IsNonConstantSPOffsetChange = false;
-        const int64_t MaxOffset = Cur.Reg2MaxOffset->find(OC.FromReg)->second;
-        if (Next) {
-          Next->MaxOffsetSinceLastProbe = MaxOffset - *OC.OffsetChange;
-          Next->SPFixedOffsetFromOrig = std::nullopt;
+        const MaxOffsetT MaxOffset =
+            Cur.Reg2MaxOffset->find(OC.FromReg)->second;
+        if (MaxOffset != MaxOffsetT::Top()) {
+          if (Next) {
+            Next->MaxOffsetSinceLastProbe =
+                MaxOffset.getIntValue() - *OC.OffsetChange;
+            Next->SPFixedOffsetFromOrig = std::nullopt;
+          }
+        } else {
+          // unlimited Max Offset
+          if (Next) {
+            Next->MaxOffsetSinceLastProbe = std::numeric_limits<int64_t>::max();//MaxOffsetT::Top();
+            Next->SPFixedOffsetFromOrig = std::nullopt;
+          }
+          IsNonConstantSPOffsetChange = true;
         }
       }
     }
@@ -293,12 +356,15 @@ bool checkNonConstSPOffsetChange(const BinaryContext &BC, BinaryFunction &BF,
     // and     sp, x9, #0xffffffffffffff80
     uint64_t BitsToZeroMask = ~Mask;
     int64_t MaxOffsetChange = BitsToZeroMask + 1;
-    if (Next) {
-      Next->MaxOffsetSinceLastProbe =
-          Cur.Reg2MaxOffset->find(FromReg)->second + MaxOffsetChange;
+    IsNonConstantSPOffsetChange = false;
+    MaxOffsetT MaxOffset = Cur.Reg2MaxOffset->find(FromReg)->second;
+    MaxOffsetT NextOffset = MaxOffset + MaxOffsetChange;
+    if (NextOffset == MaxOffsetT::Top())
+      IsNonConstantSPOffsetChange = true;
+    else if (Next) {
+      Next->MaxOffsetSinceLastProbe = NextOffset.getIntValue();
       Next->SPFixedOffsetFromOrig = std::nullopt;
     }
-    IsNonConstantSPOffsetChange = false;
   }
 
   return IsNonConstantSPOffsetChange;
@@ -328,7 +394,7 @@ protected:
   State getStartingStateAtBB(const BinaryBasicBlock &BB) {
     State Next;
     if (BB.isEntryPoint())
-      Next.Reg2MaxOffset = SmallDenseMap<MCPhysReg, int64_t, 2>();
+      Next.Reg2MaxOffset = SmallDenseMap<MCPhysReg, MaxOffsetT, 2>();
     return Next;
   }
 
@@ -440,11 +506,11 @@ protected:
         int64_t Offset = *OC.OffsetChange;
         if (OC.FromReg == SP) {
           (*Next.Reg2MaxOffset)[OC.ToReg] =
-              *Cur.MaxOffsetSinceLastProbe - Offset;
+              *Cur.MaxOffsetSinceLastProbe + (-Offset);
           FixedOffsetRegJustSet = OC.ToReg;
         } else if (auto I = Cur.Reg2MaxOffset->find(OC.FromReg);
                    I != Cur.Reg2MaxOffset->end()) {
-          (*Next.Reg2MaxOffset)[OC.ToReg] = (*I).second - Offset;
+          (*Next.Reg2MaxOffset)[OC.ToReg] = (*I).second + (-Offset);
           FixedOffsetRegJustSet = OC.ToReg;
         }
       }

@@ -2,6 +2,19 @@
 // RUN: llvm-bolt-gadget-scanner --scanners=stack-clash %t.exe 2>&1 | FileCheck -check-prefix=CHECK --allow-empty %s
 
         .text
+        .global f_no_inf_loop1
+        .type   f_no_inf_loop1 , %function
+f_no_inf_loop1:
+        mov     x21, sp
+.Lf_no_inf_loop1:
+        subs    x21, x21, #0x10
+        b.ne    .Lf_no_inf_loop1
+        ret
+        .size   f_no_inf_loop1 , .-f_no_inf_loop1
+
+// TODO: add a test that in a loop increases the SP by 16 bytes.
+// Will that result in a seemingly infinite loop in dataflow, until
+// the SP value passes the size of a max page?
 
         .global f_fixed_large_stack
         .type   f_fixed_large_stack , %function
