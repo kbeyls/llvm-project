@@ -571,7 +571,7 @@ void reportFoundGadget(const BinaryContext &BC, const BinaryBasicBlock &BB,
   if (SCI.NotAllPagesWritten) {
     outs() << "\nGS-STACKCLASH: large SP increase without necessary accesses "
               "found in function "
-           << BFName;
+           << BFName << "(size: " << BF->getSize() << ")";
     // outs() << ", at address " << llvm::format("%x", Inst.getAddress()) <<
     // "\n";
     outs() << "\n";
@@ -588,14 +588,16 @@ void reportFoundGadget(const BinaryContext &BC, const BinaryBasicBlock &BB,
            << "):\n  * ";
     MCInstInBBReference NextSPInst = MCInstInBBReference::get(&Inst, *BF);
     BC.printInstruction(outs(), NextSPInst, NextSPInst.getAddress());
+    BF->print(outs(), "");
   }
   if (SCI.NonConstantSPChange) {
     outs() << "\nGS-STACKCLASH: non-constant SP change found in function "
-           << BFName;
+           << BFName << "(size: " << BF->getSize() << ")";
     outs() << "\n";
     outs() << "  instruction ";
     BC.printInstruction(outs(), Inst,
                         MCInstInBBReference::get(&Inst, *BF).getAddress());
+    BF->print(outs(), "");
   }
 }
 
