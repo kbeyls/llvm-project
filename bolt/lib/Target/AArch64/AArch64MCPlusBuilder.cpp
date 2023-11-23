@@ -410,8 +410,8 @@ public:
     return Inst.getOpcode() == AArch64::ADR;
   }
 
-  bool isRetainOnlyLowerBitsInReg(const MCInst &Inst, MCPhysReg &Reg,
-                                  uint64_t &Mask) override {
+  bool isRetainOnlyLowerBitsInReg(const MCInst &Inst, MCPhysReg &ToReg,
+                                  uint64_t &Mask) const override {
     bool Is32Bit = false;
     switch (Inst.getOpcode()) {
     default:
@@ -426,7 +426,30 @@ public:
           Inst.getOperand(2).getImm(), Is32Bit ? 32 : 64);
       if (!isPowerOf2_64(MaskValue + 1) && MaskValue != 0)
         return false;
-      Reg = Inst.getOperand(0).getReg();
+      ToReg = Inst.getOperand(0).getReg();
+      Mask = MaskValue;
+      return true;
+    }
+  }
+
+  bool isMaskLowerBitsInReg(const MCInst &Inst, MCPhysReg &FromReg,
+                            MCPhysReg &ToReg, uint64_t &Mask) const override {
+    bool Is32Bit = false;
+    switch (Inst.getOpcode()) {
+    default:
+      return false;
+    case AArch64::ANDSWri:
+    case AArch64::ANDWri:
+      Is32Bit = true;
+      LLVM_FALLTHROUGH;
+    case AArch64::ANDSXri:
+    case AArch64::ANDXri:
+      uint64_t MaskValue = AArch64_AM::decodeLogicalImmediate(
+          Inst.getOperand(2).getImm(), Is32Bit ? 32 : 64);
+      if (!isPowerOf2_64(~MaskValue + 1) && MaskValue != 0)
+        return false;
+      ToReg = Inst.getOperand(0).getReg();
+      FromReg = Inst.getOperand(1).getReg();
       Mask = MaskValue;
       return true;
     }

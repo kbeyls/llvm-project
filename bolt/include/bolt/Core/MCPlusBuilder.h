@@ -646,7 +646,13 @@ public:
   }
 
   virtual bool isRetainOnlyLowerBitsInReg(const MCInst &Inst, MCPhysReg &Reg,
-                                          uint64_t &Mask) {
+                                          uint64_t &Mask) const {
+    llvm_unreachable("not implemented");
+    return false;
+  }
+
+  virtual bool isMaskLowerBitsInReg(const MCInst &Inst, MCPhysReg &FromReg,
+                                    MCPhysReg& ToReg, uint64_t &Mask) const {
     llvm_unreachable("not implemented");
     return false;
   }

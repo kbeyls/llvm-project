@@ -40,12 +40,10 @@ f_variable_large_stack:
         stp     x29, x30, [sp, #-16]!
         add     x1, x0, #0xf
         and     x1, x1, #0xfffffffffffffff0
-        mov     x29, sp
         sub     sp, sp, x1
         mov     x1, sp
         add     x0, x1, x0, lsl #3
         ldur    w0, [x0, #-24]
-        mov     sp, x29
         ldp     x29, x30, [sp], #16
         ret
         .size   f_variable_large_stack , .-f_variable_large_stack
@@ -194,6 +192,18 @@ f_alloca_in_loop:
         .size   f_alloca_in_loop, .-f_alloca_in_loop
 
 // CHECK-NOT: GS-STACKCLASH:
+
+        .global f_align_sp
+        .type   f_align_sp, %function
+f_align_sp:
+        stp     x29, x30, [sp, #-0x30]!
+        mov     x29, sp
+        sub     x9, sp, #0x1d0
+        and     sp, x9, #0xffffffffffffff80
+        ldp     x29, x30, [sp], 32
+        ret
+        .size   f_align_sp, .-f_align_sp
+
 
 // TODO: also add a test case with nested alloca loops.
 

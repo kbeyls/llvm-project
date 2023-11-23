@@ -206,7 +206,7 @@ raw_ostream &print_state(raw_ostream &OS, const State &S,
   } else
     OS << "None";
   OS << ",";
-  OS << "LastStackGrowingInsts(" << S.LastStackGrowingInsts.size() << ")>";
+  OS << "LastStackGrowingInsts(" << S.LastStackGrowingInsts.size() << ")> ";
   return OS;
 }
 
@@ -223,6 +223,86 @@ public:
   void print(raw_ostream &OS, const State &S) const { print_state(OS, S, &BC); }
   explicit StackClashStatePrinter(const BinaryContext &BC) : BC(BC) {}
 };
+
+bool checkNonConstSPOffsetChange(const BinaryContext &BC, BinaryFunction &BF,
+                                 const MCInst &Point, const State &Cur,
+                                 State *Next = nullptr) {
+  const MCPhysReg SP = BC.MIB->getStackPointer();
+  bool IsNonConstantSPOffsetChange = false;
+  if (BC.MIB->hasDefOfPhysReg(Point, SP)) {
+    IsNonConstantSPOffsetChange = true;
+
+    // Next, validate that  we can track by how much the SP
+    // value changes. This should be a constant amount.
+    // Else, if we cannot determine the fixed offset, mark this location as
+    // needing a report that this potentially changes the SP value by a
+    // non-constant amount, and hence violates stack-clash properties.
+    if (Next)
+      Next->LastStackGrowingInsts.insert(MCInstInBBReference::get(&Point, BF));
+    if (auto OC = BC.MIB->getOffsetChange(Point, Cur.RegConstValues,
+                                          Cur.RegMaxValues);
+        OC && OC.ToReg == SP) {
+      if (OC.FromReg == SP) {
+        IsNonConstantSPOffsetChange = false;
+        assert(OC.MaxOffsetChange);
+        if (Next) {
+          if (*OC.MaxOffsetChange < 0)
+            Next->MaxOffsetSinceLastProbe =
+                *Next->MaxOffsetSinceLastProbe - *OC.MaxOffsetChange;
+          if (OC.OffsetChange && Next->SPFixedOffsetFromOrig)
+            Next->SPFixedOffsetFromOrig =
+                *Next->SPFixedOffsetFromOrig + *OC.OffsetChange;
+            // FIXME: add test case for this if test.
+#if 0
+        if (IsPreIndexOffsetChange)
+          Next.MaxOffsetSinceLastProbe =
+              *Next.MaxOffsetSinceLastProbe - StackAccessOffset;
+#endif
+          LLVM_DEBUG({
+            dbgs() << "  Found SP Offset change: ";
+            BC.printInstruction(dbgs(), Point);
+            dbgs() << "    OffsetChange: " << OC.OffsetChange
+                   << "; MaxOffsetChange: " << OC.MaxOffsetChange
+                   << "; new MaxOffsetSinceLastProbe: "
+                   << Next->MaxOffsetSinceLastProbe
+                   << "; new SPFixedOffsetFromOrig: "
+                   << Next->SPFixedOffsetFromOrig
+                   << "\n";
+          });
+        }
+        // assert(!OC.IsPreIndexOffsetChange || IsStackAccess);
+        if (Next)
+          assert(*Next->MaxOffsetSinceLastProbe >= 0);
+      } else if (Cur.Reg2MaxOffset && Cur.Reg2MaxOffset->contains(OC.FromReg) &&
+                 OC.OffsetChange) {
+        IsNonConstantSPOffsetChange = false;
+        const int64_t MaxOffset = Cur.Reg2MaxOffset->find(OC.FromReg)->second;
+        if (Next) {
+          Next->MaxOffsetSinceLastProbe = MaxOffset - *OC.OffsetChange;
+          Next->SPFixedOffsetFromOrig = std::nullopt;
+        }
+      }
+    }
+  }
+  uint64_t Mask = 0;
+  if (MCPhysReg FromReg, ToReg;
+      BC.MIB->isMaskLowerBitsInReg(Point, FromReg, ToReg, Mask) &&
+      Cur.Reg2MaxOffset && Cur.Reg2MaxOffset->contains(FromReg)) {
+    // handle SP-aligning patterns like
+    // sub     x9, sp, #0x1d0
+    // and     sp, x9, #0xffffffffffffff80
+    uint64_t BitsToZeroMask = ~Mask;
+    int64_t MaxOffsetChange = BitsToZeroMask + 1;
+    if (Next) {
+      Next->MaxOffsetSinceLastProbe =
+          Cur.Reg2MaxOffset->find(FromReg)->second + MaxOffsetChange;
+      Next->SPFixedOffsetFromOrig = std::nullopt;
+    }
+    IsNonConstantSPOffsetChange = false;
+  }
+
+  return IsNonConstantSPOffsetChange;
+}
 
 class StackClashDFAnalysis
     : public DataflowAnalysis<StackClashDFAnalysis, State, false /*Forward*/,
@@ -356,13 +436,15 @@ protected:
     MCPhysReg FixedOffsetRegJustSet = BC.MIB->getNoRegister();
     if (auto OC = BC.MIB->getOffsetChange(Point, Cur.RegConstValues,
                                           Cur.RegMaxValues))
-      if (Next.Reg2MaxOffset) {
+      if (Next.Reg2MaxOffset && OC.OffsetChange) {
+        int64_t Offset = *OC.OffsetChange;
         if (OC.FromReg == SP) {
-          (*Next.Reg2MaxOffset)[OC.ToReg] = *Cur.MaxOffsetSinceLastProbe;
+          (*Next.Reg2MaxOffset)[OC.ToReg] =
+              *Cur.MaxOffsetSinceLastProbe - Offset;
           FixedOffsetRegJustSet = OC.ToReg;
         } else if (auto I = Cur.Reg2MaxOffset->find(OC.FromReg);
                    I != Cur.Reg2MaxOffset->end()) {
-          (*Next.Reg2MaxOffset)[OC.ToReg] = (*I).second;
+          (*Next.Reg2MaxOffset)[OC.ToReg] = (*I).second - Offset;
           FixedOffsetRegJustSet = OC.ToReg;
         }
       }
@@ -380,60 +462,18 @@ protected:
         }
       }
 
-    if (BC.MIB->hasDefOfPhysReg(Point, SP)) {
-      // Next, validate that  we can track by how much the SP
-      // value changes. This should be a constant amount.
-      // Else, if we cannot determine the fixed offset, mark this location as
-      // needing a report that this potentially changes the SP value by a
-      // non-constant amount, and hence violates stack-clash properties.
-      Next.LastStackGrowingInsts.insert(MCInstInBBReference::get(&Point, BF));
-      if (auto OC = BC.MIB->getOffsetChange(Point, Cur.RegConstValues,
-                                            Cur.RegMaxValues);
-          OC && OC.ToReg == SP) {
-        if (OC.FromReg == SP) {
-          assert(OC.MaxOffsetChange);
-          if (*OC.MaxOffsetChange < 0)
-            Next.MaxOffsetSinceLastProbe =
-                *Next.MaxOffsetSinceLastProbe - *OC.MaxOffsetChange;
-          if (OC.OffsetChange && Next.SPFixedOffsetFromOrig)
-            Next.SPFixedOffsetFromOrig =
-                *Next.SPFixedOffsetFromOrig + *OC.OffsetChange;
-            // FIXME: add test case for this if test.
-#if 0
-        if (IsPreIndexOffsetChange)
-          Next.MaxOffsetSinceLastProbe =
-              *Next.MaxOffsetSinceLastProbe - StackAccessOffset;
-#endif
-          LLVM_DEBUG({
-            dbgs() << "  Found SP Offset change: ";
-            BC.printInstruction(dbgs(), Point);
-            dbgs() << "    OffsetChange: " << OC.OffsetChange
-                   << "; MaxOffsetChange: " << OC.MaxOffsetChange
-                   << "; new MaxOffsetSinceLastProbe: "
-                   << Next.MaxOffsetSinceLastProbe
-                   << "; new SPFixedOffsetFromOrig: "
-                   << Next.SPFixedOffsetFromOrig
-                   << "; IsStackAccess:" << IsStackAccess
-                   << "; StackAccessOffset: " << StackAccessOffset << "\n";
-          });
-          assert(!OC.IsPreIndexOffsetChange || IsStackAccess);
-          assert(*Next.MaxOffsetSinceLastProbe >= 0);
-        } else if (
-            Cur.Reg2MaxOffset && Cur.Reg2MaxOffset->contains(OC.FromReg) &&
-            OC.OffsetChange ==
-                0 /* FIXME: also handle other offset changes if needed. */) {
-          const int64_t MaxOffset = Cur.Reg2MaxOffset->find(OC.FromReg)->second;
-          Next.MaxOffsetSinceLastProbe = MaxOffset;
-        }
-      } else {
-        Next.MaxOffsetSinceLastProbe.reset();
-        Next.SPFixedOffsetFromOrig
-            .reset(); // FIXME - should I make this the empty set?
-        LLVM_DEBUG({
-          dbgs() << "  Found non-const SP Offset change: ";
-          BC.printInstruction(dbgs(), Point);
-        });
-      }
+    bool IsNonConstantSPOffsetChange =
+        checkNonConstSPOffsetChange(BC, BF, Point, Cur, &Next);
+    if (IsNonConstantSPOffsetChange) {
+      Next.MaxOffsetSinceLastProbe.reset();
+      Next.SPFixedOffsetFromOrig
+          .reset(); // FIXME - should I make this the empty set?
+                    // FIXME - should I make the Reg trackers empty sets
+                    // here?
+      LLVM_DEBUG({
+        dbgs() << "  Found non-const SP Offset change: ";
+        BC.printInstruction(dbgs(), Point);
+      });
     }
 
     return Next;
@@ -461,7 +501,6 @@ void StackClashAnalysis::runOnFunction(
     StackClashDFAnalysis SCDFA(BF, AllocatorId);
     SCDFA.run();
     BinaryContext &BC = BF.getBinaryContext();
-    const MCPhysReg SP = BC.MIB->getStackPointer();
 
     // Now iterate over the basic blocks to indicate where something needs
     // to be reported.
@@ -498,31 +537,16 @@ void StackClashAnalysis::runOnFunction(
         // Else, if we cannot determine the fixed offset, mark this location
         // as needing a report that this potentially changes the SP value by a
         // non-constant amount, and hence violates stack-clash properties.
-        if (auto OC =
-                BC.MIB->getOffsetChange(Inst, S.RegConstValues, S.RegMaxValues);
-            BC.MIB->hasDefOfPhysReg(Inst, SP) &&
-            !(OC && OC.ToReg == SP && OC.FromReg == SP)) {
-          // If this is a register move from a register that we know contains
-          // a value that is a fixed offset from the SP at the start of the
-          // function into the SP, then we know this is probably fine.
-          // Typical case is moving the frame pointer to the stack pointer
-          // in the function epilogue.
-          bool IsFixedRegToSPMove = OC && OC.ToReg == SP && S.Reg2MaxOffset &&
-                                    S.Reg2MaxOffset->contains(OC.FromReg);
-          if (IsFixedRegToSPMove) {
-            S.MaxOffsetSinceLastProbe =
-                S.Reg2MaxOffset->find(OC.FromReg)->second;
-          } else {
-            // mark to report that this may be an SP change that is not a
-            // constant amount.
-            LLVM_DEBUG({
-              dbgs() << "  Found SP Offset change that may not be a constant "
-                        "amount: ";
-              BC.printInstruction(dbgs(), Inst);
-            });
-            SCIAnnotations.push_back(
-                StackClashIssue::createNonConstantSPChangeData());
-          }
+        if (checkNonConstSPOffsetChange(BC, BF, Inst, S)) {
+          // mark to report that this may be an SP change that is not a
+          // constant amount.
+          LLVM_DEBUG({
+            dbgs() << "  Found SP Offset change that may not be a constant "
+                      "amount: ";
+            BC.printInstruction(dbgs(), Inst);
+          });
+          SCIAnnotations.push_back(
+              StackClashIssue::createNonConstantSPChangeData());
         }
         // merge and add annotations
         if (SCIAnnotations.size() == 0)
