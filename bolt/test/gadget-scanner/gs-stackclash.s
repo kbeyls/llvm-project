@@ -105,6 +105,32 @@ f_variable_large_stack_protected:
         ldp     x29, x30, [sp], 16
         ret
         .size   f_variable_large_stack_protected, .-f_variable_large_stack_protected
+
+// CHECK-NOT: GS-STACKCLASH:
+
+        .global f_var_stack_protected2
+        .type   f_var_stack_protected2 , %function
+f_var_stack_protected2:
+        // From "__BOLT_FDE_FUNCat7f530" in /usr/lib64/libasound.so.2
+        mov     x1, sp
+        and     x0, x0, #0x70
+        cmp     sp, x1
+        b.eq    .Lf_var_stack_protected2_2
+.Lf_var_stack_protected2_1:
+        sub     sp, sp, #0x10, lsl #12
+        str     xzr, [sp, #0x400]
+        cmp     sp, x1
+        b.ne    .Lf_var_stack_protected2_1
+.Lf_var_stack_protected2_2:
+        sub     sp, sp, x0
+        ret
+        .size   f_var_stack_protected2, .-f_var_stack_protected2
+
+
+
+// Second example: register containing SP-offset value is
+// spill/filled at a location of x29+fixed offset.
+
 // CHECK-NOT: GS-STACKCLASH:
 
         .global f_verify_detect_fp_corruption

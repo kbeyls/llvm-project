@@ -57,19 +57,6 @@ namespace {
 // Step 1 - let's start by implementing detecting an issue on a bare minimal
 // example. Therefore, implement (2), (3), (4) and (a).
 
-/// Returns true if the register R is present in the Map M.
-bool addToMaxMap(SmallDenseMap<MCPhysReg, uint64_t, 1> &M, MCPhysReg R,
-                 const uint64_t MaxValue) {
-  auto MIt = M.find(R);
-  if (MIt == M.end()) {
-    MIt->second = MaxValue;
-    return false;
-  } else {
-    MIt->second = std::max(MIt->second, MaxValue);
-    return true;
-  }
-}
-
 template <typename T, auto MergeValLambda> class LatticeT {
 private:
   enum LValType { _Bottom, Value, _Top } LValType;
@@ -77,6 +64,8 @@ private:
   LatticeT(enum LValType ValType, T Val) : LValType(ValType), V(Val) {}
   static LatticeT _TopV;    //(_Top, T());
   static LatticeT _BottomV; //(_Bottom, T());
+  static T _DefaultVal;
+
 public:
   LatticeT() : LatticeT(_Bottom, T()) {}
   LatticeT(T V) : LatticeT(Value, V) {}
@@ -143,22 +132,22 @@ public:
     V = f(V, V2);
     return *this;
   }
+  const T &getValOrDefault() const {
+    if (hasVal())
+      return getVal();
+    else
+      return _DefaultVal;
+  }
 };
+
+
+template <typename T, auto M>
+raw_ostream &operator<<(raw_ostream &OS, const LatticeT<T, M> &V);
 
 template <typename T, auto M> LatticeT<T, M> LatticeT<T, M>::_TopV(_Top, T());
 template <typename T, auto M>
 LatticeT<T, M> LatticeT<T, M>::_BottomV(_Bottom, T());
-
-template <typename T, auto M>
-raw_ostream &operator<<(raw_ostream &OS, const LatticeT<T, M> &V) {
-  if (V == V.Top())
-    OS << "(T)";
-  else if (V == V.Bottom())
-    OS << "(B)";
-  else
-    OS << V.getVal();
-  return OS;
-}
+template <typename T, auto M> T LatticeT<T, M>::_DefaultVal = T();
 
 bool MaxOffsetMergeVal(int64_t &v1, const int64_t &v2) { return v1 == v2; }
 using MaxOffsetT = LatticeT<int64_t, MaxOffsetMergeVal>;
@@ -209,6 +198,55 @@ raw_ostream &operator<<(raw_ostream &OS, const Reg2MaxOffsetValT &M) {
 
 using Reg2MaxOffsetT = LatticeT<Reg2MaxOffsetValT, Reg2MaxOffsetMergeVal>;
 
+using Reg2MaxValT = SmallDenseMap<MCPhysReg, uint64_t, 1>;
+bool RegMaxValuesValMerge(Reg2MaxValT &v1, const Reg2MaxValT &v2) {
+  SmallVector<MCPhysReg, 1> RegMaxValuesToRemove;
+  for (auto Reg2MaxValue : v1) {
+    const MCPhysReg R(Reg2MaxValue.first);
+    auto v2Reg2MaxValue = v2.find(R);
+    if (v2Reg2MaxValue == v2.end())
+      RegMaxValuesToRemove.push_back(R);
+    else
+      Reg2MaxValue.second =
+          std::max(Reg2MaxValue.second, v2Reg2MaxValue->second);
+    // FIXME: this should be a "confluence" - similar
+    // to MaxOffsetT? To avoid near infinite loops?
+  }
+  for (MCPhysReg R : RegMaxValuesToRemove)
+    v1.erase(R);
+  return true;
+}
+raw_ostream &operator<<(raw_ostream &OS, const Reg2MaxValT &M) {
+  for (auto Reg2Value : M) {
+    print_reg(OS, Reg2Value.first, nullptr);
+    OS << ":" << Reg2Value.second << ",";
+  }
+  return OS;
+}
+using RegMaxValuesT = LatticeT<Reg2MaxValT, RegMaxValuesValMerge>;
+
+void addToMaxMap(RegMaxValuesT &M, MCPhysReg R, const uint64_t Value) {
+  if (!M.hasVal())
+    return;
+  auto MIt = M->find(R);
+  if (MIt == M->end())
+    MIt->second = Value;
+  else
+    MIt->second = std::max(MIt->second, Value);
+}
+
+template <typename T, auto M>
+raw_ostream &operator<<(raw_ostream &OS, const LatticeT<T, M> &V) {
+  if (V == V.Top())
+    OS << "(T)";
+  else if (V == V.Bottom())
+    OS << "(B)";
+  else
+    OS << V.getVal();
+  return OS;
+}
+
+
 struct State {
   // Store the maximum possible offset to which the stack extends
   // beyond the furthest probe seen.
@@ -220,7 +258,7 @@ struct State {
   /// range [0, MaxValue-1].
   // FIXME: also make this std::optional!!!
   // FIXME: same for RegConstValues.
-  SmallDenseMap<MCPhysReg, uint64_t, 1> RegMaxValues;
+  RegMaxValuesT RegMaxValues;
   /// Reg2MaxOffset contains the registers that contain the value
   /// of SP at some point during the running function, where it's
   /// guaranteed that at the time the SP value was stored in the register,
@@ -263,20 +301,7 @@ struct State {
     for (MCPhysReg R : RegConstValuesToRemove)
       RegConstValues.erase(R);
 
-    SmallVector<MCPhysReg, 1> RegMaxValuesToRemove;
-    for (auto Reg2MaxValue : RegMaxValues) {
-      const MCPhysReg R(Reg2MaxValue.first);
-      auto SInReg2MaxValue = StateIn.RegMaxValues.find(R);
-      if (SInReg2MaxValue == StateIn.RegMaxValues.end())
-        RegMaxValuesToRemove.push_back(R);
-      else
-        Reg2MaxValue.second =
-            std::max(Reg2MaxValue.second, SInReg2MaxValue->second);
-      // FIXME: this should be a "confluence" - similar
-      // to MaxOffsetT? To avoid near infinite loops?
-    }
-    for (MCPhysReg R : RegMaxValuesToRemove)
-      RegMaxValues.erase(R);
+    RegMaxValues &= StateIn.RegMaxValues;
 
     if (!SPFixedOffsetFromOrig || !StateIn.SPFixedOffsetFromOrig)
       SPFixedOffsetFromOrig.reset();
@@ -318,13 +343,18 @@ raw_ostream &print_state(raw_ostream &OS, const State &S,
   OS << "), RegConstValues(";
   PrintRegMap(OS, S.RegConstValues, BC);
   OS << "), RegMaxValues(";
-  PrintRegMap(OS, S.RegMaxValues, BC);
+  if (S.RegMaxValues.hasVal()) {
+    OS << "(";
+    PrintRegMap(OS, *S.RegMaxValues, BC);
+    OS << ")";
+  } else
+    OS << S.RegMaxValues;
   OS << "),";
   OS << "SPFixedOffsetFromOrig:" << S.SPFixedOffsetFromOrig << ",";
   OS << "Reg2MaxOffset:";
   if (S.Reg2MaxOffset.hasVal()) {
     OS << "(";
-    PrintRegMap(OS, S.Reg2MaxOffset.getVal(), BC);
+    PrintRegMap(OS, *S.Reg2MaxOffset, BC);
     OS << ")";
   } else
     OS << S.Reg2MaxOffset;
@@ -363,7 +393,7 @@ bool checkNonConstSPOffsetChange(const BinaryContext &BC, BinaryFunction &BF,
     if (Next)
       Next->LastStackGrowingInsts.insert(MCInstInBBReference::get(&Point, BF));
     if (auto OC = BC.MIB->getOffsetChange(Point, Cur.RegConstValues,
-                                          Cur.RegMaxValues);
+                                          Cur.RegMaxValues.getValOrDefault());
         OC && OC.ToReg == SP) {
       if (OC.FromReg == SP) {
         IsNonConstantSPOffsetChange = false;
@@ -464,8 +494,10 @@ protected:
 
   State getStartingStateAtBB(const BinaryBasicBlock &BB) {
     State Next;
-    if (BB.isEntryPoint())
+    if (BB.isEntryPoint()) {
       Next.Reg2MaxOffset = Reg2MaxOffsetValT();
+      Next.RegMaxValues = Reg2MaxValT();
+    }
     return Next;
   }
 
@@ -527,12 +559,13 @@ protected:
                << "; MaxValueMask: " << MaxValueMask << "\n";
       });
       const uint64_t MaxValueInReg = MaxValueMask;
-      auto MaxValueForRegI = Next.RegMaxValues.find(MaxValueReg);
-      if (MaxValueForRegI == Next.RegMaxValues.end())
-        Next.RegMaxValues[MaxValueReg] = MaxValueInReg;
-      else {
-        MaxValueForRegI->second =
-            std::min(MaxValueForRegI->second, MaxValueInReg);
+      if (Next.RegMaxValues.hasVal()) {
+        if (auto MaxValueForRegI = Next.RegMaxValues->find(MaxValueReg);
+            MaxValueForRegI == Next.RegMaxValues->end())
+          (*Next.RegMaxValues)[MaxValueReg] = MaxValueInReg;
+        else
+          MaxValueForRegI->second =
+              std::min(MaxValueForRegI->second, MaxValueInReg);
       }
     }
     // FIXME properly handle register aliases below. E.g. a call
@@ -545,8 +578,8 @@ protected:
 #endif
     for (const MCOperand &Operand : BC.MIB->defOperands(Point)) {
       assert(Operand.isReg());
-      if (Operand.getReg() != MaxValueReg)
-        Next.RegMaxValues.erase(Operand.getReg());
+      if (Next.RegMaxValues.hasVal() && Operand.getReg() != MaxValueReg)
+        Next.RegMaxValues->erase(Operand.getReg());
       if (Operand.getReg() != ConstValueReg)
         Next.RegConstValues.erase(Operand.getReg());
     }
@@ -572,7 +605,7 @@ protected:
 
     MCPhysReg FixedOffsetRegJustSet = BC.MIB->getNoRegister();
     if (auto OC = BC.MIB->getOffsetChange(Point, Cur.RegConstValues,
-                                          Cur.RegMaxValues))
+                                          Cur.RegMaxValues.getValOrDefault()))
       if (Next.Reg2MaxOffset.hasVal() && OC.OffsetChange) {
         int64_t Offset = *OC.OffsetChange;
         if (OC.FromReg == SP) {

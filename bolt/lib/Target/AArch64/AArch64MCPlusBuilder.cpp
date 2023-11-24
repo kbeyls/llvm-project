@@ -347,7 +347,14 @@ public:
           }
           auto RegMaxValueI = RegMaxValues.find(OffsetReg);
           if (RegMaxValueI != RegMaxValues.end()) {
+            uint64_t UValue = RegMaxValueI->second;
             int64_t Value = RegMaxValueI->second;
+            // if Value is so large that it could result
+            // in wrap-arounds, do not consider this an
+            // offset change. Heuristically, we assume
+            // any value larger than 2^30 can cause wrap-arounds
+            if (UValue > (1L<<30))
+              return Res;
             if (IsSub)
               Value = -Value;
             Res.FromReg = Inst.getOperand(1).getReg();
@@ -424,8 +431,10 @@ public:
     case AArch64::ANDXri:
       uint64_t MaskValue = AArch64_AM::decodeLogicalImmediate(
           Inst.getOperand(2).getImm(), Is32Bit ? 32 : 64);
+#if 0
       if (!isPowerOf2_64(MaskValue + 1) && MaskValue != 0)
         return false;
+#endif
       ToReg = Inst.getOperand(0).getReg();
       Mask = MaskValue;
       return true;
