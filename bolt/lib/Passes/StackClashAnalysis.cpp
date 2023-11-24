@@ -72,7 +72,7 @@ bool addToMaxMap(SmallDenseMap<MCPhysReg, uint64_t, 1> &M, MCPhysReg R,
 
 template <typename T, auto MergeValLambda> class LatticeT {
 private:
-  enum LValType { _Bottom, _Top, Value } LValType;
+  enum LValType { _Bottom, Value, _Top } LValType;
   T V;
   LatticeT(enum LValType ValType, T Val) : LValType(ValType), V(Val) {}
   static LatticeT _TopV;    //(_Top, T());
@@ -111,10 +111,31 @@ public:
     return LValType == RHS.LValType && V == RHS.V;
   }
   bool operator!=(const LatticeT &RHS) const { return !(*this == RHS); }
+  bool operator<(const LatticeT &RHS) const {
+    if (LValType < RHS.LValType)
+      return true;
+    if (LValType > RHS.LValType)
+      return false;
+    assert(LValType == RHS.LValType);
+    if (LValType == Value)
+      return V < RHS.V;
+    else
+      return false;
+  }
+
+  bool hasVal() const { return *this != Bottom() && *this != Top(); }
   const T &getVal() const {
-    assert(*this != Bottom() && *this != Top());
+    assert(hasVal());
     return V;
   }
+  T &getVal() {
+    assert(hasVal());
+    return V;
+  }
+  T *operator->() { return &getVal(); }
+  const T *operator->() const { return &getVal(); }
+  T &operator*() { return getVal(); }
+  const T &operator*() const { return getVal(); }
   LatticeT &doOnVal(std::function<const T &(T &, const T &)> f, const T &V2) {
     assert(*this != Bottom());
     if (*this == Top())
@@ -149,6 +170,45 @@ MaxOffsetT &operator+=(MaxOffsetT &O1, const int64_t O2) {
   return O1.doOnVal(AddOffset, O2);
 }
 
+using Reg2MaxOffsetValT = SmallDenseMap<MCPhysReg, MaxOffsetT, 2>;
+bool Reg2MaxOffsetMergeVal(Reg2MaxOffsetValT &v1, const Reg2MaxOffsetValT &v2) {
+  SmallVector<MCPhysReg, 1> RegMaxValuesToRemove;
+  for (auto Reg2MaxValue : v1) {
+    const MCPhysReg R(Reg2MaxValue.first);
+    if (auto v2Reg2MaxValue = v2.find(R); v2Reg2MaxValue == v2.end())
+      RegMaxValuesToRemove.push_back(R);
+    else
+      Reg2MaxValue.second =
+          std::max(Reg2MaxValue.second, v2Reg2MaxValue->second);
+    // FIXME: this should be a "confluence" - similar
+    // to MaxOffsetT? To avoid near infinite loops?
+  }
+  for (MCPhysReg R : RegMaxValuesToRemove)
+    v1.erase(R);
+  return true;
+}
+
+void print_reg(raw_ostream &OS, MCPhysReg Reg, const BinaryContext *BC) {
+  if (!BC)
+    OS << "R" << Reg;
+  else {
+    RegStatePrinter RegStatePrinter(*BC);
+    BitVector BV(BC->MRI->getNumRegs(), false);
+    BV.set(Reg);
+    RegStatePrinter.print(OS, BV);
+  }
+}
+
+raw_ostream &operator<<(raw_ostream &OS, const Reg2MaxOffsetValT &M) {
+  for (auto Reg2Value : M) {
+    print_reg(OS, Reg2Value.first, nullptr);
+    OS << ":" << Reg2Value.second << ",";
+  }
+  return OS;
+}
+
+using Reg2MaxOffsetT = LatticeT<Reg2MaxOffsetValT, Reg2MaxOffsetMergeVal>;
+
 struct State {
   // Store the maximum possible offset to which the stack extends
   // beyond the furthest probe seen.
@@ -172,7 +232,7 @@ struct State {
   /// This is only tracked in Basic Blocks that are known to be reachable
   /// from an entry block. For blocks not (yet) known to be reachable from
   /// an entry block, the optional does not contain a value.
-  std::optional<SmallDenseMap<MCPhysReg, MaxOffsetT, 2>> Reg2MaxOffset;
+  Reg2MaxOffsetT Reg2MaxOffset;
   // FIXME: It seems that conceptually it does not make sense to
   // track wheterh the SP value is currently at a fixed offset from
   // the value it was at function entry.
@@ -223,24 +283,7 @@ struct State {
     else if (*SPFixedOffsetFromOrig != *StateIn.SPFixedOffsetFromOrig)
       SPFixedOffsetFromOrig.reset();
 
-    if (StateIn.Reg2MaxOffset && Reg2MaxOffset) {
-      SmallVector<MCPhysReg, 2> RToRemove;
-      for (auto R2MaxOff : *Reg2MaxOffset) {
-        const MCPhysReg R = R2MaxOff.first;
-        if (auto SIn_R2MaxOff = StateIn.Reg2MaxOffset->find(R);
-            SIn_R2MaxOff == StateIn.Reg2MaxOffset->end())
-          RToRemove.push_back(R);
-        else {
-          MaxOffsetT MaxOff1 = R2MaxOff.second;
-          MaxOffsetT MaxOff2 = SIn_R2MaxOff->second;
-          MaxOff1 &= MaxOff2;
-        }
-        for (auto R : RToRemove)
-          Reg2MaxOffset->erase(R);
-      }
-    } else if (StateIn.Reg2MaxOffset && !Reg2MaxOffset) {
-      Reg2MaxOffset = StateIn.Reg2MaxOffset;
-    }
+    Reg2MaxOffset &= StateIn.Reg2MaxOffset;
 
     for (auto I : StateIn.LastStackGrowingInsts)
       LastStackGrowingInsts.insert(I);
@@ -255,17 +298,6 @@ struct State {
   }
   bool operator!=(const State &RHS) const { return !((*this) == RHS); }
 };
-
-void print_reg(raw_ostream &OS, MCPhysReg Reg, const BinaryContext *BC) {
-  if (!BC)
-    OS << "R" << Reg;
-  else {
-    RegStatePrinter RegStatePrinter(*BC);
-    BitVector BV(BC->MRI->getNumRegs(), false);
-    BV.set(Reg);
-    RegStatePrinter.print(OS, BV);
-  }
-}
 
 template <class T, unsigned N>
 void PrintRegMap(raw_ostream &OS, const SmallDenseMap<MCPhysReg, T, N> &M,
@@ -290,12 +322,12 @@ raw_ostream &print_state(raw_ostream &OS, const State &S,
   OS << "),";
   OS << "SPFixedOffsetFromOrig:" << S.SPFixedOffsetFromOrig << ",";
   OS << "Reg2MaxOffset:";
-  if (S.Reg2MaxOffset) {
+  if (S.Reg2MaxOffset.hasVal()) {
     OS << "(";
-    PrintRegMap(OS, *S.Reg2MaxOffset, BC);
+    PrintRegMap(OS, S.Reg2MaxOffset.getVal(), BC);
     OS << ")";
   } else
-    OS << "None";
+    OS << S.Reg2MaxOffset;
   OS << ",";
   OS << "LastStackGrowingInsts(" << S.LastStackGrowingInsts.size() << ")> ";
   return OS;
@@ -363,8 +395,8 @@ bool checkNonConstSPOffsetChange(const BinaryContext &BC, BinaryFunction &BF,
         // assert(!OC.IsPreIndexOffsetChange || IsStackAccess);
         if (Next)
           assert(*Next->MaxOffsetSinceLastProbe >= 0);
-      } else if (Cur.Reg2MaxOffset && Cur.Reg2MaxOffset->contains(OC.FromReg) &&
-                 OC.OffsetChange) {
+      } else if (Cur.Reg2MaxOffset.hasVal() &&
+                 Cur.Reg2MaxOffset->contains(OC.FromReg) && OC.OffsetChange) {
         IsNonConstantSPOffsetChange = false;
         const MaxOffsetT MaxOffset =
             Cur.Reg2MaxOffset->find(OC.FromReg)->second;
@@ -389,7 +421,7 @@ bool checkNonConstSPOffsetChange(const BinaryContext &BC, BinaryFunction &BF,
   uint64_t Mask = 0;
   if (MCPhysReg FromReg, ToReg;
       BC.MIB->isMaskLowerBitsInReg(Point, FromReg, ToReg, Mask) &&
-      Cur.Reg2MaxOffset && Cur.Reg2MaxOffset->contains(FromReg)) {
+      Cur.Reg2MaxOffset.hasVal() && Cur.Reg2MaxOffset->contains(FromReg)) {
     // handle SP-aligning patterns like
     // sub     x9, sp, #0x1d0
     // and     sp, x9, #0xffffffffffffff80
@@ -433,7 +465,7 @@ protected:
   State getStartingStateAtBB(const BinaryBasicBlock &BB) {
     State Next;
     if (BB.isEntryPoint())
-      Next.Reg2MaxOffset = SmallDenseMap<MCPhysReg, MaxOffsetT, 2>();
+      Next.Reg2MaxOffset = Reg2MaxOffsetValT();
     return Next;
   }
 
@@ -541,7 +573,7 @@ protected:
     MCPhysReg FixedOffsetRegJustSet = BC.MIB->getNoRegister();
     if (auto OC = BC.MIB->getOffsetChange(Point, Cur.RegConstValues,
                                           Cur.RegMaxValues))
-      if (Next.Reg2MaxOffset && OC.OffsetChange) {
+      if (Next.Reg2MaxOffset.hasVal() && OC.OffsetChange) {
         int64_t Offset = *OC.OffsetChange;
         if (OC.FromReg == SP) {
           MaxOffsetT &MaxOffset = (*Next.Reg2MaxOffset)[OC.ToReg] =
@@ -555,7 +587,7 @@ protected:
           FixedOffsetRegJustSet = OC.ToReg;
         }
       }
-    if (Next.Reg2MaxOffset)
+    if (Next.Reg2MaxOffset.hasVal())
       for (const MCOperand &Operand : BC.MIB->defOperands(Point)) {
         if (Operand.getReg() != FixedOffsetRegJustSet) {
           Next.Reg2MaxOffset->erase(Operand.getReg());
