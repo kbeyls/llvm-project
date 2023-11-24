@@ -140,7 +140,6 @@ public:
   }
 };
 
-
 template <typename T, auto M>
 raw_ostream &operator<<(raw_ostream &OS, const LatticeT<T, M> &V);
 
@@ -235,6 +234,38 @@ void addToMaxMap(RegMaxValuesT &M, MCPhysReg R, const uint64_t Value) {
     MIt->second = std::max(MIt->second, Value);
 }
 
+using Reg2ConstValT = SmallDenseMap<MCPhysReg, uint64_t, 1>;
+bool RegConstValuesValMerge(Reg2ConstValT &v1, const Reg2ConstValT &v2) {
+  SmallVector<MCPhysReg, 1> RegConstValuesToRemove;
+  for (auto Reg2ConstValue : v1) {
+    const MCPhysReg R(Reg2ConstValue.first);
+    // const uint64_t ConstValue(Reg2ConstValue.second);
+    auto v2Reg2ConstValue = v2.find(R);
+    if (v2Reg2ConstValue == v2.end())
+      RegConstValuesToRemove.push_back(R);
+    else if (Reg2ConstValue.second != v2Reg2ConstValue->second) {
+      RegConstValuesToRemove.push_back(R);
+#if 0
+      // FIXME: how to add this back in?
+      addToMaxMap(RegMaxValues, R, ConstValue);
+#endif
+    }
+  }
+  for (MCPhysReg R : RegConstValuesToRemove)
+    v1.erase(R);
+  return true;
+}
+#if 0
+raw_ostream &operator<<(raw_ostream &OS, const Reg2ConstValT &M) {
+  for (auto Reg2Value : M) {
+    print_reg(OS, Reg2Value.first, nullptr);
+    OS << ":" << Reg2Value.second << ",";
+  }
+  return OS;
+}
+#endif
+using RegConstValuesT = LatticeT<Reg2ConstValT, RegConstValuesValMerge>;
+
 template <typename T, auto M>
 raw_ostream &operator<<(raw_ostream &OS, const LatticeT<T, M> &V) {
   if (V == V.Top())
@@ -246,14 +277,13 @@ raw_ostream &operator<<(raw_ostream &OS, const LatticeT<T, M> &V) {
   return OS;
 }
 
-
 struct State {
   // Store the maximum possible offset to which the stack extends
   // beyond the furthest probe seen.
   MaxOffsetSinceLastProbeT MaxOffsetSinceLastProbe;
   /// ExactValues stores registers that we know have a specific
   /// constant value.
-  SmallDenseMap<MCPhysReg, uint64_t, 1> RegConstValues;
+  RegConstValuesT RegConstValues;
   /// RegMaxValues stores registers that we know have a value in the
   /// range [0, MaxValue-1].
   // FIXME: also make this std::optional!!!
@@ -286,6 +316,7 @@ struct State {
   State &operator&=(const State &StateIn) {
     MaxOffsetSinceLastProbe &= StateIn.MaxOffsetSinceLastProbe;
 
+#if 0
     SmallVector<MCPhysReg, 1> RegConstValuesToRemove;
     for (auto Reg2ConstValue : RegConstValues) {
       const MCPhysReg R(Reg2ConstValue.first);
@@ -300,6 +331,8 @@ struct State {
     }
     for (MCPhysReg R : RegConstValuesToRemove)
       RegConstValues.erase(R);
+#endif
+    RegConstValues &= StateIn.RegConstValues;
 
     RegMaxValues &= StateIn.RegMaxValues;
 
@@ -341,7 +374,12 @@ raw_ostream &print_state(raw_ostream &OS, const State &S,
   else
     OS << *(S.MaxOffsetSinceLastProbe);
   OS << "), RegConstValues(";
-  PrintRegMap(OS, S.RegConstValues, BC);
+  if (S.RegConstValues.hasVal()) {
+    OS << "(";
+    PrintRegMap(OS, *S.RegConstValues, BC);
+    OS << ")";
+  } else
+    OS << S.RegConstValues;
   OS << "), RegMaxValues(";
   if (S.RegMaxValues.hasVal()) {
     OS << "(";
@@ -392,8 +430,9 @@ bool checkNonConstSPOffsetChange(const BinaryContext &BC, BinaryFunction &BF,
     // non-constant amount, and hence violates stack-clash properties.
     if (Next)
       Next->LastStackGrowingInsts.insert(MCInstInBBReference::get(&Point, BF));
-    if (auto OC = BC.MIB->getOffsetChange(Point, Cur.RegConstValues,
-                                          Cur.RegMaxValues.getValOrDefault());
+    if (auto OC =
+            BC.MIB->getOffsetChange(Point, Cur.RegConstValues.getValOrDefault(),
+                                    Cur.RegMaxValues.getValOrDefault());
         OC && OC.ToReg == SP) {
       if (OC.FromReg == SP) {
         IsNonConstantSPOffsetChange = false;
@@ -497,6 +536,7 @@ protected:
     if (BB.isEntryPoint()) {
       Next.Reg2MaxOffset = Reg2MaxOffsetValT();
       Next.RegMaxValues = Reg2MaxValT();
+      Next.RegConstValues = Reg2ConstValT();
     }
     return Next;
   }
@@ -546,7 +586,8 @@ protected:
         BC.printInstruction(dbgs(), Point);
         dbgs() << "\n";
       });
-      Next.RegConstValues[ConstValueReg] = ConstValue;
+      if (Next.RegConstValues.hasVal())
+        (*Next.RegConstValues)[ConstValueReg] = ConstValue;
     }
 
     MCPhysReg MaxValueReg = BC.MIB->getNoRegister();
@@ -580,8 +621,8 @@ protected:
       assert(Operand.isReg());
       if (Next.RegMaxValues.hasVal() && Operand.getReg() != MaxValueReg)
         Next.RegMaxValues->erase(Operand.getReg());
-      if (Operand.getReg() != ConstValueReg)
-        Next.RegConstValues.erase(Operand.getReg());
+      if (Next.RegConstValues.hasVal() && Operand.getReg() != ConstValueReg)
+        Next.RegConstValues->erase(Operand.getReg());
     }
 
     if (!Next.MaxOffsetSinceLastProbe)
@@ -604,8 +645,9 @@ protected:
     }
 
     MCPhysReg FixedOffsetRegJustSet = BC.MIB->getNoRegister();
-    if (auto OC = BC.MIB->getOffsetChange(Point, Cur.RegConstValues,
-                                          Cur.RegMaxValues.getValOrDefault()))
+    if (auto OC =
+            BC.MIB->getOffsetChange(Point, Cur.RegConstValues.getValOrDefault(),
+                                    Cur.RegMaxValues.getValOrDefault()))
       if (Next.Reg2MaxOffset.hasVal() && OC.OffsetChange) {
         int64_t Offset = *OC.OffsetChange;
         if (OC.FromReg == SP) {
