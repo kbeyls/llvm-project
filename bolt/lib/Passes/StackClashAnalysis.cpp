@@ -19,7 +19,7 @@
 #include "llvm/MC/MCInst.h"
 #include "llvm/Support/Format.h"
 
-#include <limits>
+#include <functional>
 
 #define DEBUG_TYPE "bolt-stackclash"
 
@@ -70,49 +70,83 @@ bool addToMaxMap(SmallDenseMap<MCPhysReg, uint64_t, 1> &M, MCPhysReg R,
   }
 }
 
-class MaxOffsetT {
+template <typename T, auto MergeValLambda> class LatticeT {
 private:
-  int64_t V;
-  // FIXME: should I add an "iteration count", and allow
-  // "max" to be computed a few times. But if it's being
-  // computed too many times, give up?
-
+  enum LValType { _Bottom, _Top, Value } LValType;
+  T V;
+  LatticeT(enum LValType ValType, T Val) : LValType(ValType), V(Val) {}
+  static LatticeT _TopV;    //(_Top, T());
+  static LatticeT _BottomV; //(_Bottom, T());
 public:
-  MaxOffsetT() : V(Bottom().V) {}
-  MaxOffsetT(int64_t O) : V(O) {}
-  static MaxOffsetT Top() { return std::numeric_limits<int64_t>::max(); }
-  static MaxOffsetT Bottom() { return std::numeric_limits<int64_t>::min(); }
-  static MaxOffsetT doConfluence(const MaxOffsetT O1, const MaxOffsetT O2) {
-    if (O1 == O2)
-      return O1;
-    if (O1 == Bottom())
-      return O2;
-    if (O2 == Bottom())
-      return O1;
-    return Top();
+  LatticeT() : LatticeT(_Bottom, T()) {}
+  LatticeT(T V) : LatticeT(Value, V) {}
+  static const LatticeT &Top() { return _TopV; }
+  static const LatticeT &Bottom() { return _BottomV; }
+  LatticeT &operator&=(const LatticeT &E2) {
+    switch (E2.LValType) {
+    case _Bottom:
+      // nothing to do.
+      break;
+    case _Top:
+      *this = Top();
+      break;
+    case Value:
+      switch (LValType) {
+      case _Bottom:
+        *this = E2;
+        break;
+      case _Top:
+        // nothing to do.
+        break;
+      case Value:
+        if (!MergeValLambda(V, E2.V))
+          *this = Top();
+        break;
+      }
+      break;
+    }
+    return *this;
   }
-  MaxOffsetT operator+(const int64_t Offset) const {
-    assert(*this != Bottom());
-    if (*this == Top())
-      return Top();
-    return MaxOffsetT(V + Offset);
+  bool operator==(const LatticeT &RHS) const {
+    return LValType == RHS.LValType && V == RHS.V;
   }
-  bool operator==(const MaxOffsetT RHS) const { return V == RHS.V; }
-  bool operator!=(const MaxOffsetT RHS) const { return !(*this == RHS); }
-  int64_t getIntValue() const {
+  bool operator!=(const LatticeT &RHS) const { return !(*this == RHS); }
+  const T &getVal() const {
     assert(*this != Bottom() && *this != Top());
     return V;
   }
+  LatticeT &doOnVal(std::function<const T &(T &, const T &)> f, const T &V2) {
+    assert(*this != Bottom());
+    if (*this == Top())
+      return *this;
+    V = f(V, V2);
+    return *this;
+  }
 };
 
-raw_ostream &operator<<(raw_ostream &OS, MaxOffsetT O) {
-  if (O == MaxOffsetT::Top())
+template <typename T, auto M> LatticeT<T, M> LatticeT<T, M>::_TopV(_Top, T());
+template <typename T, auto M>
+LatticeT<T, M> LatticeT<T, M>::_BottomV(_Bottom, T());
+
+template <typename T, auto M>
+raw_ostream &operator<<(raw_ostream &OS, const LatticeT<T, M> &V) {
+  if (V == V.Top())
     OS << "(T)";
-  else if (O == MaxOffsetT::Bottom())
+  else if (V == V.Bottom())
     OS << "(B)";
   else
-    OS << O.getIntValue();
+    OS << V.getVal();
   return OS;
+}
+
+bool MaxOffsetMergeVal(int64_t &v1, const int64_t &v2) { return v1 == v2; }
+using MaxOffsetT = LatticeT<int64_t, MaxOffsetMergeVal>;
+const auto AddOffset = [](int64_t &v1, const int64_t &v2) -> const int64_t & {
+  v1 += v2;
+  return v1;
+};
+MaxOffsetT &operator+=(MaxOffsetT &O1, const int64_t O2) {
+  return O1.doOnVal(AddOffset, O2);
 }
 
 struct State {
@@ -124,6 +158,8 @@ struct State {
   SmallDenseMap<MCPhysReg, uint64_t, 1> RegConstValues;
   /// RegMaxValues stores registers that we know have a value in the
   /// range [0, MaxValue-1].
+  // FIXME: also make this std::optional!!!
+  // FIXME: same for RegConstValues.
   SmallDenseMap<MCPhysReg, uint64_t, 1> RegMaxValues;
   /// Reg2MaxOffset contains the registers that contain the value
   /// of SP at some point during the running function, where it's
@@ -176,6 +212,8 @@ struct State {
       else
         Reg2MaxValue.second =
             std::max(Reg2MaxValue.second, SInReg2MaxValue->second);
+      // FIXME: this should be a "confluence" - similar
+      // to MaxOffsetT? To avoid near infinite loops?
     }
     for (MCPhysReg R : RegMaxValuesToRemove)
       RegMaxValues.erase(R);
@@ -186,20 +224,20 @@ struct State {
       SPFixedOffsetFromOrig.reset();
 
     if (StateIn.Reg2MaxOffset && Reg2MaxOffset) {
-      SmallDenseMap<MCPhysReg, MaxOffsetT, 2> MergedMap;
+      SmallVector<MCPhysReg, 2> RToRemove;
       for (auto R2MaxOff : *Reg2MaxOffset) {
         const MCPhysReg R = R2MaxOff.first;
         if (auto SIn_R2MaxOff = StateIn.Reg2MaxOffset->find(R);
-            SIn_R2MaxOff != StateIn.Reg2MaxOffset->end()) {
+            SIn_R2MaxOff == StateIn.Reg2MaxOffset->end())
+          RToRemove.push_back(R);
+        else {
           MaxOffsetT MaxOff1 = R2MaxOff.second;
           MaxOffsetT MaxOff2 = SIn_R2MaxOff->second;
-          MergedMap[R] = MaxOffsetT::doConfluence(MaxOff1, MaxOff2);
-#if 0
-          std::max(R2MaxOff.second, SIn_R2MaxOff->second);
-#endif
+          MaxOff1 &= MaxOff2;
         }
+        for (auto R : RToRemove)
+          Reg2MaxOffset->erase(R);
       }
-      Reg2MaxOffset = MergedMap;
     } else if (StateIn.Reg2MaxOffset && !Reg2MaxOffset) {
       Reg2MaxOffset = StateIn.Reg2MaxOffset;
     }
@@ -333,13 +371,14 @@ bool checkNonConstSPOffsetChange(const BinaryContext &BC, BinaryFunction &BF,
         if (MaxOffset != MaxOffsetT::Top()) {
           if (Next) {
             Next->MaxOffsetSinceLastProbe =
-                MaxOffset.getIntValue() - *OC.OffsetChange;
+                MaxOffset.getVal() - *OC.OffsetChange;
             Next->SPFixedOffsetFromOrig = std::nullopt;
           }
         } else {
           // unlimited Max Offset
           if (Next) {
-            Next->MaxOffsetSinceLastProbe = std::numeric_limits<int64_t>::max();//MaxOffsetT::Top();
+            Next->MaxOffsetSinceLastProbe =
+                std::numeric_limits<int64_t>::max(); // MaxOffsetT::Top();
             Next->SPFixedOffsetFromOrig = std::nullopt;
           }
           IsNonConstantSPOffsetChange = true;
@@ -358,11 +397,11 @@ bool checkNonConstSPOffsetChange(const BinaryContext &BC, BinaryFunction &BF,
     int64_t MaxOffsetChange = BitsToZeroMask + 1;
     IsNonConstantSPOffsetChange = false;
     MaxOffsetT MaxOffset = Cur.Reg2MaxOffset->find(FromReg)->second;
-    MaxOffsetT NextOffset = MaxOffset + MaxOffsetChange;
-    if (NextOffset == MaxOffsetT::Top())
+    MaxOffset += MaxOffsetChange;
+    if (MaxOffset == MaxOffsetT::Top())
       IsNonConstantSPOffsetChange = true;
     else if (Next) {
-      Next->MaxOffsetSinceLastProbe = NextOffset.getIntValue();
+      Next->MaxOffsetSinceLastProbe = MaxOffset.getVal();
       Next->SPFixedOffsetFromOrig = std::nullopt;
     }
   }
@@ -505,12 +544,14 @@ protected:
       if (Next.Reg2MaxOffset && OC.OffsetChange) {
         int64_t Offset = *OC.OffsetChange;
         if (OC.FromReg == SP) {
-          (*Next.Reg2MaxOffset)[OC.ToReg] =
-              *Cur.MaxOffsetSinceLastProbe + (-Offset);
+          MaxOffsetT &MaxOffset = (*Next.Reg2MaxOffset)[OC.ToReg] =
+              *Cur.MaxOffsetSinceLastProbe;
+          MaxOffset += (-Offset);
           FixedOffsetRegJustSet = OC.ToReg;
         } else if (auto I = Cur.Reg2MaxOffset->find(OC.FromReg);
                    I != Cur.Reg2MaxOffset->end()) {
-          (*Next.Reg2MaxOffset)[OC.ToReg] = (*I).second + (-Offset);
+          MaxOffsetT &MaxOffset = (*Next.Reg2MaxOffset)[OC.ToReg] = (*I).second;
+          MaxOffset += (-Offset);
           FixedOffsetRegJustSet = OC.ToReg;
         }
       }
