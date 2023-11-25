@@ -142,11 +142,36 @@ public:
 
 template <typename T, auto M>
 raw_ostream &operator<<(raw_ostream &OS, const LatticeT<T, M> &V);
+void print_reg(raw_ostream &OS, MCPhysReg Reg, const BinaryContext *BC) {
+  if (!BC)
+    OS << "R" << Reg;
+  else {
+    RegStatePrinter RegStatePrinter(*BC);
+    BitVector BV(BC->MRI->getNumRegs(), false);
+    BV.set(Reg);
+    RegStatePrinter.print(OS, BV);
+  }
+}
 
 template <typename T, auto M> LatticeT<T, M> LatticeT<T, M>::_TopV(_Top, T());
 template <typename T, auto M>
 LatticeT<T, M> LatticeT<T, M>::_BottomV(_Bottom, T());
 template <typename T, auto M> T LatticeT<T, M>::_DefaultVal = T();
+
+template <typename MapT, typename KeyT>
+bool MergeMapOfLatticeValues(MapT &m1, const MapT &m2) {
+  SmallVector<KeyT, 1> KeysToRemove;
+  for (auto v1Entry : m1) {
+    const KeyT Key(v1Entry.first);
+    if (auto v2Entry = m2.find(Key); v2Entry == m2.end())
+      KeysToRemove.push_back(Key);
+    else
+      v1Entry.second &= v2Entry->second;
+  }
+  for (KeyT K : KeysToRemove)
+    m1.erase(K);
+  return true;
+}
 
 bool MaxOffsetMergeVal(int64_t &v1, const int64_t &v2) { return v1 == v2; }
 using MaxOffsetT = LatticeT<int64_t, MaxOffsetMergeVal>;
@@ -159,31 +184,6 @@ MaxOffsetT &operator+=(MaxOffsetT &O1, const int64_t O2) {
 }
 
 using Reg2MaxOffsetValT = SmallDenseMap<MCPhysReg, MaxOffsetT, 2>;
-bool Reg2MaxOffsetMergeVal(Reg2MaxOffsetValT &v1, const Reg2MaxOffsetValT &v2) {
-  SmallVector<MCPhysReg, 1> RegMaxValuesToRemove;
-  for (auto Reg2MaxValue : v1) {
-    const MCPhysReg R(Reg2MaxValue.first);
-    if (auto v2Reg2MaxValue = v2.find(R); v2Reg2MaxValue == v2.end())
-      RegMaxValuesToRemove.push_back(R);
-    else
-      Reg2MaxValue.second &= v2Reg2MaxValue->second;
-  }
-  for (MCPhysReg R : RegMaxValuesToRemove)
-    v1.erase(R);
-  return true;
-}
-
-void print_reg(raw_ostream &OS, MCPhysReg Reg, const BinaryContext *BC) {
-  if (!BC)
-    OS << "R" << Reg;
-  else {
-    RegStatePrinter RegStatePrinter(*BC);
-    BitVector BV(BC->MRI->getNumRegs(), false);
-    BV.set(Reg);
-    RegStatePrinter.print(OS, BV);
-  }
-}
-
 raw_ostream &operator<<(raw_ostream &OS, const Reg2MaxOffsetValT &M) {
   for (auto Reg2Value : M) {
     print_reg(OS, Reg2Value.first, nullptr);
@@ -191,35 +191,12 @@ raw_ostream &operator<<(raw_ostream &OS, const Reg2MaxOffsetValT &M) {
   }
   return OS;
 }
+using Reg2MaxOffsetT =
+    LatticeT<Reg2MaxOffsetValT,
+             MergeMapOfLatticeValues<Reg2MaxOffsetValT, MCPhysReg>>;
 
-using Reg2MaxOffsetT = LatticeT<Reg2MaxOffsetValT, Reg2MaxOffsetMergeVal>;
 
 using Reg2MaxValT = SmallDenseMap<MCPhysReg, uint64_t, 1>;
-bool RegMaxValuesValMerge(Reg2MaxValT &v1, const Reg2MaxValT &v2) {
-  SmallVector<MCPhysReg, 1> RegMaxValuesToRemove;
-  for (auto Reg2MaxValue : v1) {
-    const MCPhysReg R(Reg2MaxValue.first);
-#if 0
-    auto v2Reg2MaxValue = v2.find(R);
-#endif
-    if (auto v2Reg2MaxValue = v2.find(R); v2Reg2MaxValue == v2.end())
-      RegMaxValuesToRemove.push_back(R);
-    else
-      Reg2MaxValue.second &= v2Reg2MaxValue->second;
-#if 0
-    if (v2Reg2MaxValue == v2.end())
-      RegMaxValuesToRemove.push_back(R);
-    else
-      Reg2MaxValue.second =
-          std::max(Reg2MaxValue.second, v2Reg2MaxValue->second);
-#endif
-    // FIXME: this should be a "confluence" - similar
-    // to MaxOffsetT? To avoid near infinite loops?
-  }
-  for (MCPhysReg R : RegMaxValuesToRemove)
-    v1.erase(R);
-  return true;
-}
 raw_ostream &operator<<(raw_ostream &OS, const Reg2MaxValT &M) {
   for (auto Reg2Value : M) {
     print_reg(OS, Reg2Value.first, nullptr);
@@ -227,8 +204,10 @@ raw_ostream &operator<<(raw_ostream &OS, const Reg2MaxValT &M) {
   }
   return OS;
 }
-using RegMaxValuesT = LatticeT<Reg2MaxValT, RegMaxValuesValMerge>;
+using RegMaxValuesT =
+    LatticeT<Reg2MaxValT, MergeMapOfLatticeValues<Reg2MaxValT, MCPhysReg>>;
 
+#if 0
 void addToMaxMap(RegMaxValuesT &M, MCPhysReg R, const uint64_t Value) {
   if (!M.hasVal())
     return;
@@ -238,28 +217,10 @@ void addToMaxMap(RegMaxValuesT &M, MCPhysReg R, const uint64_t Value) {
   else
     MIt->second = std::max(MIt->second, Value);
 }
+#endif
 
 using Reg2ConstValT = SmallDenseMap<MCPhysReg, uint64_t, 1>;
-bool RegConstValuesValMerge(Reg2ConstValT &v1, const Reg2ConstValT &v2) {
-  SmallVector<MCPhysReg, 1> RegConstValuesToRemove;
-  for (auto Reg2ConstValue : v1) {
-    const MCPhysReg R(Reg2ConstValue.first);
-    // const uint64_t ConstValue(Reg2ConstValue.second);
-    auto v2Reg2ConstValue = v2.find(R);
-    if (v2Reg2ConstValue == v2.end())
-      RegConstValuesToRemove.push_back(R);
-    else if (Reg2ConstValue.second != v2Reg2ConstValue->second) {
-      RegConstValuesToRemove.push_back(R);
-#if 0
-      // FIXME: how to add this back in?
-      addToMaxMap(RegMaxValues, R, ConstValue);
-#endif
-    }
-  }
-  for (MCPhysReg R : RegConstValuesToRemove)
-    v1.erase(R);
-  return true;
-}
+
 #if 0
 raw_ostream &operator<<(raw_ostream &OS, const Reg2ConstValT &M) {
   for (auto Reg2Value : M) {
@@ -269,7 +230,8 @@ raw_ostream &operator<<(raw_ostream &OS, const Reg2ConstValT &M) {
   return OS;
 }
 #endif
-using RegConstValuesT = LatticeT<Reg2ConstValT, RegConstValuesValMerge>;
+using RegConstValuesT =
+    LatticeT<Reg2ConstValT, MergeMapOfLatticeValues<Reg2ConstValT, MCPhysReg>>;
 
 struct BaseRegOffsetSpilledReg {
   MCPhysReg BaseReg;
