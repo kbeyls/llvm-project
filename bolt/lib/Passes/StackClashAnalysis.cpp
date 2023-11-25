@@ -199,12 +199,20 @@ bool RegMaxValuesValMerge(Reg2MaxValT &v1, const Reg2MaxValT &v2) {
   SmallVector<MCPhysReg, 1> RegMaxValuesToRemove;
   for (auto Reg2MaxValue : v1) {
     const MCPhysReg R(Reg2MaxValue.first);
+#if 0
     auto v2Reg2MaxValue = v2.find(R);
+#endif
+    if (auto v2Reg2MaxValue = v2.find(R); v2Reg2MaxValue == v2.end())
+      RegMaxValuesToRemove.push_back(R);
+    else
+      Reg2MaxValue.second &= v2Reg2MaxValue->second;
+#if 0
     if (v2Reg2MaxValue == v2.end())
       RegMaxValuesToRemove.push_back(R);
     else
       Reg2MaxValue.second =
           std::max(Reg2MaxValue.second, v2Reg2MaxValue->second);
+#endif
     // FIXME: this should be a "confluence" - similar
     // to MaxOffsetT? To avoid near infinite loops?
   }
