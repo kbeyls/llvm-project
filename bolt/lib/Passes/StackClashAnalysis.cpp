@@ -166,10 +166,7 @@ bool Reg2MaxOffsetMergeVal(Reg2MaxOffsetValT &v1, const Reg2MaxOffsetValT &v2) {
     if (auto v2Reg2MaxValue = v2.find(R); v2Reg2MaxValue == v2.end())
       RegMaxValuesToRemove.push_back(R);
     else
-      Reg2MaxValue.second =
-          std::max(Reg2MaxValue.second, v2Reg2MaxValue->second);
-    // FIXME: this should be a "confluence" - similar
-    // to MaxOffsetT? To avoid near infinite loops?
+      Reg2MaxValue.second &= v2Reg2MaxValue->second;
   }
   for (MCPhysReg R : RegMaxValuesToRemove)
     v1.erase(R);
@@ -266,6 +263,15 @@ raw_ostream &operator<<(raw_ostream &OS, const Reg2ConstValT &M) {
 #endif
 using RegConstValuesT = LatticeT<Reg2ConstValT, RegConstValuesValMerge>;
 
+struct BaseRegOffsetSpilledReg {
+  MCPhysReg BaseReg;
+  MCPhysReg SpilledReg;
+  int32_t SpillOffset;
+};
+
+using SpilledSPOffsetRegsT =
+    SmallDenseMap<BaseRegOffsetSpilledReg, MaxOffsetT, 1>;
+
 template <typename T, auto M>
 raw_ostream &operator<<(raw_ostream &OS, const LatticeT<T, M> &V) {
   if (V == V.Top())
@@ -301,9 +307,13 @@ struct State {
   /// from an entry block. For blocks not (yet) known to be reachable from
   /// an entry block, the optional does not contain a value.
   Reg2MaxOffsetT Reg2MaxOffset;
-  // FIXME: It seems that conceptually it does not make sense to
-  // track wheterh the SP value is currently at a fixed offset from
-  // the value it was at function entry.
+  /// storing which Reg2MaxOffset registers are spilled at which offset
+  /// from which reg2maxoffset base register.
+  /// Or maybe just add markings in Reg2MaxOffset to indicate if spilled?
+  // SpilledSPOffsetRegsT SpilledSPOffsetRegs;
+  //  FIXME: It seems that conceptually it does not make sense to
+  //  track wheterh the SP value is currently at a fixed offset from
+  //  the value it was at function entry.
   /// SPFixedOffsetFromOrig indicates whether the current SP value is
   /// a constant fixed offset from the SP value at the function start.
   std::optional<int64_t> SPFixedOffsetFromOrig;
