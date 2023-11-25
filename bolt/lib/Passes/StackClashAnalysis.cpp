@@ -195,7 +195,6 @@ using Reg2MaxOffsetT =
     LatticeT<Reg2MaxOffsetValT,
              MergeMapOfLatticeValues<Reg2MaxOffsetValT, MCPhysReg>>;
 
-
 using Reg2MaxValT = SmallDenseMap<MCPhysReg, uint64_t, 1>;
 raw_ostream &operator<<(raw_ostream &OS, const Reg2MaxValT &M) {
   for (auto Reg2Value : M) {
@@ -281,48 +280,17 @@ struct State {
   /// from which reg2maxoffset base register.
   /// Or maybe just add markings in Reg2MaxOffset to indicate if spilled?
   // SpilledSPOffsetRegsT SpilledSPOffsetRegs;
-  //  FIXME: It seems that conceptually it does not make sense to
-  //  track wheterh the SP value is currently at a fixed offset from
-  //  the value it was at function entry.
-  /// SPFixedOffsetFromOrig indicates whether the current SP value is
-  /// a constant fixed offset from the SP value at the function start.
-  std::optional<int64_t> SPFixedOffsetFromOrig;
-  // LastStackGrowingInsts keep track of the set of most recent stack growing
-  // instructions on all possible paths. This is used to improve diagnostic
-  // messages.
+  //  LastStackGrowingInsts keep track of the set of most recent stack growing
+  //  instructions on all possible paths. This is used to improve diagnostic
+  //  messages.
   SmallSet<MCInstReference, 1> LastStackGrowingInsts;
-  State() : MaxOffsetSinceLastProbe(0), SPFixedOffsetFromOrig(0) {}
+  State() : MaxOffsetSinceLastProbe(0) {}
 
   State &operator&=(const State &StateIn) {
     MaxOffsetSinceLastProbe &= StateIn.MaxOffsetSinceLastProbe;
-
-#if 0
-    SmallVector<MCPhysReg, 1> RegConstValuesToRemove;
-    for (auto Reg2ConstValue : RegConstValues) {
-      const MCPhysReg R(Reg2ConstValue.first);
-      const uint64_t ConstValue(Reg2ConstValue.second);
-      auto SInReg2ConstValue = StateIn.RegConstValues.find(R);
-      if (SInReg2ConstValue == StateIn.RegConstValues.end())
-        RegConstValuesToRemove.push_back(R);
-      else if (Reg2ConstValue.second != SInReg2ConstValue->second) {
-        RegConstValuesToRemove.push_back(R);
-        addToMaxMap(RegMaxValues, R, ConstValue);
-      }
-    }
-    for (MCPhysReg R : RegConstValuesToRemove)
-      RegConstValues.erase(R);
-#endif
     RegConstValues &= StateIn.RegConstValues;
-
     RegMaxValues &= StateIn.RegMaxValues;
-
-    if (!SPFixedOffsetFromOrig || !StateIn.SPFixedOffsetFromOrig)
-      SPFixedOffsetFromOrig.reset();
-    else if (*SPFixedOffsetFromOrig != *StateIn.SPFixedOffsetFromOrig)
-      SPFixedOffsetFromOrig.reset();
-
     Reg2MaxOffset &= StateIn.Reg2MaxOffset;
-
     for (auto I : StateIn.LastStackGrowingInsts)
       LastStackGrowingInsts.insert(I);
     return *this;
@@ -331,7 +299,6 @@ struct State {
     return MaxOffsetSinceLastProbe == RHS.MaxOffsetSinceLastProbe &&
            RegConstValues == RHS.RegConstValues &&
            RegMaxValues == RHS.RegMaxValues &&
-           SPFixedOffsetFromOrig == RHS.SPFixedOffsetFromOrig &&
            Reg2MaxOffset == RHS.Reg2MaxOffset;
   }
   bool operator!=(const State &RHS) const { return !((*this) == RHS); }
@@ -368,7 +335,6 @@ raw_ostream &print_state(raw_ostream &OS, const State &S,
   } else
     OS << S.RegMaxValues;
   OS << "),";
-  OS << "SPFixedOffsetFromOrig:" << S.SPFixedOffsetFromOrig << ",";
   OS << "Reg2MaxOffset:";
   if (S.Reg2MaxOffset.hasVal()) {
     OS << "(";
@@ -421,9 +387,6 @@ bool checkNonConstSPOffsetChange(const BinaryContext &BC, BinaryFunction &BF,
           if (*OC.MaxOffsetChange < 0)
             Next->MaxOffsetSinceLastProbe =
                 *Next->MaxOffsetSinceLastProbe - *OC.MaxOffsetChange;
-          if (OC.OffsetChange && Next->SPFixedOffsetFromOrig)
-            Next->SPFixedOffsetFromOrig =
-                *Next->SPFixedOffsetFromOrig + *OC.OffsetChange;
             // FIXME: add test case for this if test.
 #if 0
         if (IsPreIndexOffsetChange)
@@ -437,8 +400,7 @@ bool checkNonConstSPOffsetChange(const BinaryContext &BC, BinaryFunction &BF,
                    << "; MaxOffsetChange: " << OC.MaxOffsetChange
                    << "; new MaxOffsetSinceLastProbe: "
                    << Next->MaxOffsetSinceLastProbe
-                   << "; new SPFixedOffsetFromOrig: "
-                   << Next->SPFixedOffsetFromOrig << "\n";
+                   << "\n";
           });
         }
         // assert(!OC.IsPreIndexOffsetChange || IsStackAccess);
@@ -453,14 +415,13 @@ bool checkNonConstSPOffsetChange(const BinaryContext &BC, BinaryFunction &BF,
           if (Next) {
             Next->MaxOffsetSinceLastProbe =
                 MaxOffset.getVal() - *OC.OffsetChange;
-            Next->SPFixedOffsetFromOrig = std::nullopt;
           }
         } else {
           // unlimited Max Offset
           if (Next) {
             Next->MaxOffsetSinceLastProbe =
-                std::numeric_limits<int64_t>::max(); // MaxOffsetT::Top();
-            Next->SPFixedOffsetFromOrig = std::nullopt;
+                std::numeric_limits<int64_t>::max();
+                //MaxOffsetT::Top();
           }
           IsNonConstantSPOffsetChange = true;
         }
@@ -481,10 +442,8 @@ bool checkNonConstSPOffsetChange(const BinaryContext &BC, BinaryFunction &BF,
     MaxOffset += MaxOffsetChange;
     if (MaxOffset == MaxOffsetT::Top())
       IsNonConstantSPOffsetChange = true;
-    else if (Next) {
+    else if (Next)
       Next->MaxOffsetSinceLastProbe = MaxOffset.getVal();
-      Next->SPFixedOffsetFromOrig = std::nullopt;
-    }
   }
 
   return IsNonConstantSPOffsetChange;
@@ -660,10 +619,8 @@ protected:
         checkNonConstSPOffsetChange(BC, BF, Point, Cur, &Next);
     if (IsNonConstantSPOffsetChange) {
       Next.MaxOffsetSinceLastProbe.reset();
-      Next.SPFixedOffsetFromOrig
-          .reset(); // FIXME - should I make this the empty set?
-                    // FIXME - should I make the Reg trackers empty sets
-                    // here?
+      // FIXME - should I make this the empty set?
+      // FIXME - should I make the Reg trackers empty sets here?
       LLVM_DEBUG({
         dbgs() << "  Found non-const SP Offset change: ";
         BC.printInstruction(dbgs(), Point);
