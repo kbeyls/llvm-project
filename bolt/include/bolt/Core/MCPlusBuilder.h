@@ -1078,25 +1078,56 @@ public:
     return Res;
   }
 
-  /// Use \p Input1 or Input2 as the current value for the input
-  /// register and put in \p Output the changes incurred by executing
-  /// \p Inst. Return false if it was not possible to perform the
-  /// evaluation. evaluateStackOffsetExpr is restricted to operations
-  /// that have associativity with addition. Its intended usage is for
-  /// evaluating stack offset changes. In these cases, expressions
-  /// appear in the form of (x + offset) OP constant, where x is an
-  /// unknown base (such as stack base) but offset and constant are
-  /// known. In these cases, \p Output represents the new stack offset
-  /// after executing \p Inst. Because we don't know x, we can't
-  /// evaluate operations such as multiply or AND/OR, e.g. (x +
-  /// offset) OP constant is not the same as x + (offset OP constant).
-  virtual bool
-  evaluateStackOffsetExpr(const MCInst &Inst, int64_t &Output,
-                          std::pair<MCPhysReg, int64_t> Input1,
-                          std::pair<MCPhysReg, int64_t> Input2) const {
+  struct BaseRegOffsetReg {
+    MCPhysReg BaseReg;
+    int32_t Offset;
+    MCPhysReg Reg;
+    BaseRegOffsetReg(MCPhysReg BaseReg, int32_t Offset, MCPhysReg Reg)
+        : BaseReg(BaseReg), Offset(Offset), Reg(Reg) {}
+    bool operator<(const BaseRegOffsetReg &RHS) const {
+      if (BaseReg < RHS.BaseReg)
+        return true;
+      else if (BaseReg > RHS.BaseReg)
+        return false;
+      if (Reg < RHS.Reg)
+        return true;
+      else if (Reg > RHS.Reg)
+        return false;
+      return Offset < RHS.Offset;
+    }
+    bool operator==(const BaseRegOffsetReg &RHS) const {
+      return BaseReg == RHS.BaseReg && Reg == RHS.Reg && Offset == RHS.Offset;
+    }
+    bool operator!=(const BaseRegOffsetReg &RHS) const {
+      return !(*this == RHS);
+    }
+  };
+
+  virtual bool isLDRSTRImmOffset(const MCInst &Instr, bool &IsStr,
+                                 std::vector<BaseRegOffsetReg> &) const {
     llvm_unreachable("not implemented");
     return false;
   }
+
+/// Use \p Input1 or Input2 as the current value for the input
+/// register and put in \p Output the changes incurred by executing
+/// \p Inst. Return false if it was not possible to perform the
+/// evaluation. evaluateStackOffsetExpr is restricted to operations
+/// that have associativity with addition. Its intended usage is for
+/// evaluating stack offset changes. In these cases, expressions
+/// appear in the form of (x + offset) OP constant, where x is an
+/// unknown base (such as stack base) but offset and constant are
+/// known. In these cases, \p Output represents the new stack offset
+/// after executing \p Inst. Because we don't know x, we can't
+/// evaluate operations such as multiply or AND/OR, e.g. (x +
+/// offset) OP constant is not the same as x + (offset OP constant).
+virtual bool
+evaluateStackOffsetExpr(const MCInst &Inst, int64_t &Output,
+                        std::pair<MCPhysReg, int64_t> Input1,
+                        std::pair<MCPhysReg, int64_t> Input2) const {
+  llvm_unreachable("not implemented");
+  return false;
+}
 
   virtual bool isRegToRegMove(const MCInst &Inst, MCPhysReg &From,
                               MCPhysReg &To) const {

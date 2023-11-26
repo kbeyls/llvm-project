@@ -130,20 +130,22 @@ f_var_stack_protected2:
 
 // Another example: register containing SP-offset value is
 // spill/filled at a location of x29+fixed offset.
-//        .global f_spoffset_spilled
-//        .type   f_spoffset_spilled , %function
-//f_spoffset_spilled:
-//        stp     x29, x30, [sp, #-16]!
-//        mov     x29, sp
-//        sub     sp, sp, #16
-//        mov     x0, sp
-//        str     x0, [x29, #8]
-//        ldr     x0, [x29, #8]
-//        mov     sp, x0
-//        mov     sp, x29
-//        ldp     x29, x30, [sp], #16
-//        ret
-//        .size   f_spoffset_spilled , .-f_spoffset_spilled
+
+        .global f_spoffset_spilled
+        .type   f_spoffset_spilled , %function
+f_spoffset_spilled:
+        stp     x29, x30, [sp, #-16]!
+        mov     x29, sp
+        sub     sp, sp, #16
+        mov     x0, sp
+        str     x0, [x29, #8]
+        ldr     x0, [x29, #8]
+        mov     sp, x0
+        mov     sp, x29
+        ldp     x29, x30, [sp], #16
+        ret
+        .size   f_spoffset_spilled , .-f_spoffset_spilled
+        
 
 // CHECK-NOT: GS-STACKCLASH:
 

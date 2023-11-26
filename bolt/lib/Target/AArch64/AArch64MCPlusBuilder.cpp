@@ -276,6 +276,64 @@ public:
     return false;
   }
 
+  bool isLDRSTRImmOffset(const MCInst &Inst, bool &IsStr,
+                         std::vector<BaseRegOffsetReg> &Res) const override {
+    const unsigned Opc = Inst.getOpcode();
+    TypeSize Scale(1, false);
+    unsigned Width;
+    int64_t MinOffset;
+    int64_t MaxOffset;
+    if (!AArch64InstrInfo::getMemOpInfo(Opc, Scale, Width, MinOffset,
+                                        MaxOffset))
+      return false;
+    // Not handling scalable vectors yet.
+    if (Scale.isScalable())
+      return false;
+
+    // We can only handle immediate offsets.
+    // Possible there is not offset field - offset is always 0 then.
+    int16_t OffsetOpIdx =
+        AArch64::getNamedOperandIdx(Opc, AArch64::OpName::offset);
+    int64_t ScaledOffset;
+    if (OffsetOpIdx == -1)
+      ScaledOffset = 0;
+    else if (!Inst.getOperand(OffsetOpIdx).isImm())
+      return false;
+    else
+      ScaledOffset = Inst.getOperand(OffsetOpIdx).getImm() *
+                     AArch64MCInstrInfo::getOffsetScale(*Info, Opc);
+    assert(((int32_t)ScaledOffset) == ScaledOffset);
+    int32_t Offset1;
+    if (AArch64MCInstrInfo::isPostLdStOpcode(*Info, Opc))
+      Offset1 = 0;
+    else
+      Offset1 = ScaledOffset;
+
+    int16_t BaseOpIdx = AArch64::getNamedOperandIdx(Opc, AArch64::OpName::Rn);
+    assert(BaseOpIdx != -1); // We assume that every LD/ST
+                             // does have an Rn field.
+    MCPhysReg BaseReg = Inst.getOperand(BaseOpIdx).getReg();
+    // TODO: check LDP/STP
+    // TODO: set isSTR
+    // TODO: SET ToReg1/2
+    // TODO: set Offset1/Offset2
+
+    int16_t RtOpIdx = AArch64::getNamedOperandIdx(Opc, AArch64::OpName::Rt);
+    assert(RtOpIdx != -1);
+    MCPhysReg ToReg1 = Inst.getOperand(RtOpIdx).getReg();
+    Res.push_back(BaseRegOffsetReg(BaseReg, Offset1, ToReg1));
+
+    int16_t Rt2OpIdx = AArch64::getNamedOperandIdx(Opc, AArch64::OpName::Rt2);
+    if (Rt2OpIdx != -1) {
+      MCPhysReg ToReg2 = Inst.getOperand(Rt2OpIdx).getReg();
+      int32_t Offset2 =
+          Offset1 + AArch64MCInstrInfo::getOffsetScale(*Info, Opc);
+      Res.push_back(BaseRegOffsetReg(BaseReg, Offset2, ToReg2));
+    }
+    IsStr = !(Info->get(Inst.getOpcode()).mayLoad());
+    return true;
+  }
+
   struct OffsetChangeResult
   getOffsetChange(const MCInst &Inst,
                   const SmallDenseMap<MCPhysReg, uint64_t, 1> &RegConstValues,

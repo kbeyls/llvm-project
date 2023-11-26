@@ -232,14 +232,37 @@ raw_ostream &operator<<(raw_ostream &OS, const Reg2ConstValT &M) {
 using RegConstValuesT =
     LatticeT<Reg2ConstValT, MergeMapOfLatticeValues<Reg2ConstValT, MCPhysReg>>;
 
-struct BaseRegOffsetSpilledReg {
-  MCPhysReg BaseReg;
-  MCPhysReg SpilledReg;
-  int32_t SpillOffset;
-};
+using BaseRegOffsetSpilledReg = MCPlusBuilder::BaseRegOffsetReg;
+void printBaseRegOffsetSpilledReg(raw_ostream &OS,
+                                  const BaseRegOffsetSpilledReg &BRO,
+                                  const BinaryContext *BC) {
+  OS << "BRO(";
+  OS << "[";
+  print_reg(OS, BRO.BaseReg, BC);
+  OS << ", #" << BRO.Offset << "]: ";
+  print_reg(OS, BRO.Reg, BC);
+  OS << ")";
+}
+#if 0
+raw_ostream &operator<<(raw_ostream &OS, const BaseRegOffsetSpilledReg &BRO) {
+  OS << "(Base:" << BRO.BaseReg << ","
+     << "SpilledReg:" << BRO.SpilledReg << ",Off:" << BRO.SpillOffset << ")";
+  return OS;
+}
+#endif
 
-using SpilledSPOffsetRegsT =
-    SmallDenseMap<BaseRegOffsetSpilledReg, MaxOffsetT, 1>;
+using SpilledSPOffsetRegs2ValT = std::map<BaseRegOffsetSpilledReg, MaxOffsetT>;
+// SmallDenseMap<BaseRegOffsetSpilledReg, MaxOffsetT, 1>;
+raw_ostream &operator<<(raw_ostream &OS, const SpilledSPOffsetRegs2ValT &M) {
+  for (auto KeyValPair : M) {
+    printBaseRegOffsetSpilledReg(OS, KeyValPair.first, nullptr);
+    OS << ":" << KeyValPair.second << ",";
+  }
+  return OS;
+}
+using SpilledSPOffsetRegsT = LatticeT<
+    SpilledSPOffsetRegs2ValT,
+    MergeMapOfLatticeValues<SpilledSPOffsetRegs2ValT, BaseRegOffsetSpilledReg>>;
 
 template <typename T, auto M>
 raw_ostream &operator<<(raw_ostream &OS, const LatticeT<T, M> &V) {
@@ -279,10 +302,10 @@ struct State {
   /// storing which Reg2MaxOffset registers are spilled at which offset
   /// from which reg2maxoffset base register.
   /// Or maybe just add markings in Reg2MaxOffset to indicate if spilled?
-  // SpilledSPOffsetRegsT SpilledSPOffsetRegs;
-  //  LastStackGrowingInsts keep track of the set of most recent stack growing
-  //  instructions on all possible paths. This is used to improve diagnostic
-  //  messages.
+  SpilledSPOffsetRegsT SpilledSPMaxOffsetRegs;
+  ///  LastStackGrowingInsts keep track of the set of most recent stack growing
+  ///  instructions on all possible paths. This is used to improve diagnostic
+  ///  messages.
   SmallSet<MCInstReference, 1> LastStackGrowingInsts;
   State() : MaxOffsetSinceLastProbe(0) {}
 
@@ -291,6 +314,7 @@ struct State {
     RegConstValues &= StateIn.RegConstValues;
     RegMaxValues &= StateIn.RegMaxValues;
     Reg2MaxOffset &= StateIn.Reg2MaxOffset;
+    SpilledSPMaxOffsetRegs &= StateIn.SpilledSPMaxOffsetRegs;
     for (auto I : StateIn.LastStackGrowingInsts)
       LastStackGrowingInsts.insert(I);
     return *this;
@@ -299,18 +323,39 @@ struct State {
     return MaxOffsetSinceLastProbe == RHS.MaxOffsetSinceLastProbe &&
            RegConstValues == RHS.RegConstValues &&
            RegMaxValues == RHS.RegMaxValues &&
-           Reg2MaxOffset == RHS.Reg2MaxOffset;
+           Reg2MaxOffset == RHS.Reg2MaxOffset &&
+           SpilledSPMaxOffsetRegs == RHS.SpilledSPMaxOffsetRegs;
   }
   bool operator!=(const State &RHS) const { return !((*this) == RHS); }
 };
 
-template <class T, unsigned N>
-void PrintRegMap(raw_ostream &OS, const SmallDenseMap<MCPhysReg, T, N> &M,
-                 const BinaryContext *BC = nullptr) {
-  for (auto Reg2Value : M) {
-    print_reg(OS, Reg2Value.first, BC);
+template <class MapT, typename ElementT>
+void PrintMap(
+    raw_ostream &OS, const MapT &Map,
+    std::function<void(raw_ostream &, ElementT, const BinaryContext *)>
+        ElementPrinter,
+    const BinaryContext *BC = nullptr) {
+  for (auto Reg2Value : Map) {
+    ElementPrinter(OS, Reg2Value.first, BC);
+    // print_reg(OS, Reg2Value.first, BC);
     OS << ":" << Reg2Value.second << ",";
   }
+}
+
+template <typename LatticeMapT, typename ElementT>
+raw_ostream &printLatticeMap(
+    raw_ostream &OS, const char *FieldName, const LatticeMapT &Map,
+    std::function<void(raw_ostream &, ElementT, const BinaryContext *)>
+        ElementPrinter,
+    const BinaryContext *BC = nullptr) {
+  OS << FieldName << ":";
+  if (Map.hasVal()) {
+    OS << "(";
+    PrintMap(OS, *Map, ElementPrinter, BC);
+    OS << ")";
+  } else
+    OS << Map;
+  return OS;
 }
 
 raw_ostream &print_state(raw_ostream &OS, const State &S,
@@ -320,29 +365,18 @@ raw_ostream &print_state(raw_ostream &OS, const State &S,
     OS << "nonConst";
   else
     OS << *(S.MaxOffsetSinceLastProbe);
-  OS << "), RegConstValues(";
-  if (S.RegConstValues.hasVal()) {
-    OS << "(";
-    PrintRegMap(OS, *S.RegConstValues, BC);
-    OS << ")";
-  } else
-    OS << S.RegConstValues;
-  OS << "), RegMaxValues(";
-  if (S.RegMaxValues.hasVal()) {
-    OS << "(";
-    PrintRegMap(OS, *S.RegMaxValues, BC);
-    OS << ")";
-  } else
-    OS << S.RegMaxValues;
-  OS << "),";
-  OS << "Reg2MaxOffset:";
-  if (S.Reg2MaxOffset.hasVal()) {
-    OS << "(";
-    PrintRegMap(OS, *S.Reg2MaxOffset, BC);
-    OS << ")";
-  } else
-    OS << S.Reg2MaxOffset;
-  OS << ",";
+  printLatticeMap(OS, "RegConstValues", S.RegConstValues,
+                  std::function(print_reg), BC);
+  OS << ", ";
+  printLatticeMap(OS, "RegMaxValues", S.RegMaxValues, std::function(print_reg),
+                  BC);
+  OS << ", ";
+  printLatticeMap(OS, "Reg2MaxOffset", S.Reg2MaxOffset,
+                  std::function(print_reg), BC);
+  OS << ", ";
+  printLatticeMap(OS, "SpilledSPMaxOffsetRegs", S.SpilledSPMaxOffsetRegs,
+                  std::function(printBaseRegOffsetSpilledReg), BC);
+  OS << ", ";
   OS << "LastStackGrowingInsts(" << S.LastStackGrowingInsts.size() << ")> ";
   return OS;
 }
@@ -399,8 +433,7 @@ bool checkNonConstSPOffsetChange(const BinaryContext &BC, BinaryFunction &BF,
             dbgs() << "    OffsetChange: " << OC.OffsetChange
                    << "; MaxOffsetChange: " << OC.MaxOffsetChange
                    << "; new MaxOffsetSinceLastProbe: "
-                   << Next->MaxOffsetSinceLastProbe
-                   << "\n";
+                   << Next->MaxOffsetSinceLastProbe << "\n";
           });
         }
         // assert(!OC.IsPreIndexOffsetChange || IsStackAccess);
@@ -419,9 +452,8 @@ bool checkNonConstSPOffsetChange(const BinaryContext &BC, BinaryFunction &BF,
         } else {
           // unlimited Max Offset
           if (Next) {
-            Next->MaxOffsetSinceLastProbe =
-                std::numeric_limits<int64_t>::max();
-                //MaxOffsetT::Top();
+            Next->MaxOffsetSinceLastProbe = std::numeric_limits<int64_t>::max();
+            // MaxOffsetT::Top();
           }
           IsNonConstantSPOffsetChange = true;
         }
@@ -476,6 +508,7 @@ protected:
       Next.Reg2MaxOffset = Reg2MaxOffsetValT();
       Next.RegMaxValues = Reg2MaxValT();
       Next.RegConstValues = Reg2ConstValT();
+      Next.SpilledSPMaxOffsetRegs = SpilledSPOffsetRegs2ValT();
     }
     return Next;
   }
@@ -601,6 +634,43 @@ protected:
           FixedOffsetRegJustSet = OC.ToReg;
         }
       }
+
+    bool IsStr;
+    std::vector<BaseRegOffsetSpilledReg> Accesses;
+    if (BC.MIB->isLDRSTRImmOffset(Point, IsStr, Accesses) &&
+        Cur.SpilledSPMaxOffsetRegs.hasVal()) {
+      LLVM_DEBUG({
+        dbgs() << "  Recognized isLDRSTRImmOffset register spilled at: ";
+        BC.printInstruction(dbgs(), Point);
+        dbgs() << "    Accesses.size(): " << Accesses.size() << "\n";
+      });
+      if (!IsStr) {
+        // IsLdr
+        for (auto A : Accesses)
+          if (auto I = Cur.SpilledSPMaxOffsetRegs.getVal().find(A);
+              I != Cur.SpilledSPMaxOffsetRegs.getVal().end())
+            if (Next.Reg2MaxOffset.hasVal()) {
+              Next.Reg2MaxOffset.getVal()[I->first.Reg] = I->second;
+              FixedOffsetRegJustSet = I->first.Reg;
+              // FIXME: FixedOffsetRegJustSet needs to be a SmallVector.
+            }
+      } else if (Cur.Reg2MaxOffset.hasVal()) {
+        // IsStr
+        for (auto A : Accesses)
+          if (auto I = Cur.Reg2MaxOffset.getVal().find(A.Reg);
+              I != Cur.Reg2MaxOffset.getVal().end())
+            if (Next.SpilledSPMaxOffsetRegs.hasVal()) {
+              Next.SpilledSPMaxOffsetRegs.getVal()[A] = I->second;
+              LLVM_DEBUG({
+                dbgs() << "  Recognized MaxOffsetFromSP register spilled at: ";
+                BC.printInstruction(dbgs(), Point);
+                dbgs() << "    ARB: " << Next.SpilledSPMaxOffsetRegs.getVal()[A]
+                       << ";  MaxOffset: " << I->second << "\n";
+              });
+            }
+      }
+    }
+
     if (Next.Reg2MaxOffset.hasVal())
       for (const MCOperand &Operand : BC.MIB->defOperands(Point)) {
         if (Operand.getReg() != FixedOffsetRegJustSet) {
