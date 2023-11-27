@@ -365,6 +365,7 @@ raw_ostream &print_state(raw_ostream &OS, const State &S,
     OS << "nonConst";
   else
     OS << *(S.MaxOffsetSinceLastProbe);
+  OS << "), ";
   printLatticeMap(OS, "RegConstValues", S.RegConstValues,
                   std::function(print_reg), BC);
   OS << ", ";
@@ -531,6 +532,7 @@ protected:
       dbgs() << "   merged state: ";
       P.print(dbgs(), StateOut);
       dbgs() << "\n";
+      dbgs().flush();
     });
   }
 
@@ -547,6 +549,7 @@ protected:
       dbgs() << ", ";
       P.print(dbgs(), Cur);
       dbgs() << ")\n";
+      dbgs().flush();
     });
 
     MCPhysReg ConstValueReg = BC.MIB->getNoRegister();
@@ -688,7 +691,12 @@ protected:
     bool IsNonConstantSPOffsetChange =
         checkNonConstSPOffsetChange(BC, BF, Point, Cur, &Next);
     if (IsNonConstantSPOffsetChange) {
+      // Do not set MaxOffsetSinceLastProbe to top, as extra information gathered later
+      // (when all maps are fully populated), could make this a constant SP offset change
+      // after all.
+#if 0
       Next.MaxOffsetSinceLastProbe.reset();
+#endif
       // FIXME - should I make this the empty set?
       // FIXME - should I make the Reg trackers empty sets here?
       LLVM_DEBUG({
