@@ -320,6 +320,12 @@ public:
 
     int16_t RtOpIdx = AArch64::getNamedOperandIdx(Opc, AArch64::OpName::Rt);
     assert(RtOpIdx != -1);
+    if (!Inst.getOperand(RtOpIdx).isReg()) {
+      // Some instructions, such as PRFM, encode immediates in the Rt
+      // field.
+      return false;
+    }
+
     MCPhysReg ToReg1 = Inst.getOperand(RtOpIdx).getReg();
     Res.push_back(BaseRegOffsetReg(BaseReg, Offset1, ToReg1));
 
