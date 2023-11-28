@@ -232,9 +232,8 @@ raw_ostream &operator<<(raw_ostream &OS, const Reg2ConstValT &M) {
 using RegConstValuesT =
     LatticeT<Reg2ConstValT, MergeMapOfLatticeValues<Reg2ConstValT, MCPhysReg>>;
 
-using BaseRegOffsetSpilledReg = MCPlusBuilder::BaseRegOffsetReg;
-void printBaseRegOffsetSpilledReg(raw_ostream &OS,
-                                  const BaseRegOffsetSpilledReg &BRO,
+using BaseRegOffset = MCPlusBuilder::BaseRegOffsetReg;
+void printBaseRegOffsetSpilledReg(raw_ostream &OS, const BaseRegOffset &BRO,
                                   const BinaryContext *BC) {
   OS << "BRO(";
   OS << "[";
@@ -251,7 +250,7 @@ raw_ostream &operator<<(raw_ostream &OS, const BaseRegOffsetSpilledReg &BRO) {
 }
 #endif
 
-using SpilledSPOffsetRegs2ValT = std::map<BaseRegOffsetSpilledReg, MaxOffsetT>;
+using SpilledSPOffsetRegs2ValT = std::map<BaseRegOffset, MaxOffsetT>;
 // SmallDenseMap<BaseRegOffsetSpilledReg, MaxOffsetT, 1>;
 raw_ostream &operator<<(raw_ostream &OS, const SpilledSPOffsetRegs2ValT &M) {
   for (auto KeyValPair : M) {
@@ -260,9 +259,9 @@ raw_ostream &operator<<(raw_ostream &OS, const SpilledSPOffsetRegs2ValT &M) {
   }
   return OS;
 }
-using SpilledSPOffsetRegsT = LatticeT<
-    SpilledSPOffsetRegs2ValT,
-    MergeMapOfLatticeValues<SpilledSPOffsetRegs2ValT, BaseRegOffsetSpilledReg>>;
+using SpilledSPOffsetRegsT =
+    LatticeT<SpilledSPOffsetRegs2ValT,
+             MergeMapOfLatticeValues<SpilledSPOffsetRegs2ValT, BaseRegOffset>>;
 
 template <typename T, auto M>
 raw_ostream &operator<<(raw_ostream &OS, const LatticeT<T, M> &V) {
@@ -639,7 +638,7 @@ protected:
       }
 
     bool IsStr;
-    std::vector<BaseRegOffsetSpilledReg> Accesses;
+    std::vector<BaseRegOffset> Accesses;
     if (BC.MIB->isLDRSTRImmOffset(Point, IsStr, Accesses) &&
         Cur.SpilledSPMaxOffsetRegs.hasVal()) {
       LLVM_DEBUG({
@@ -649,20 +648,24 @@ protected:
       });
       if (!IsStr) {
         // IsLdr
-        for (auto A : Accesses)
+        for (auto A : Accesses) {
+          MCPhysReg LoadedReg = A.Reg;
+          A.Reg = BC.MIB->getNoRegister();
           if (auto I = Cur.SpilledSPMaxOffsetRegs.getVal().find(A);
               I != Cur.SpilledSPMaxOffsetRegs.getVal().end())
             if (Next.Reg2MaxOffset.hasVal()) {
-              Next.Reg2MaxOffset.getVal()[I->first.Reg] = I->second;
-              FixedOffsetRegJustSet = I->first.Reg;
+              Next.Reg2MaxOffset.getVal()[LoadedReg] = I->second;
+              FixedOffsetRegJustSet = LoadedReg;
               // FIXME: FixedOffsetRegJustSet needs to be a SmallVector.
             }
+        }
       } else if (Cur.Reg2MaxOffset.hasVal()) {
         // IsStr
         for (auto A : Accesses)
           if (auto I = Cur.Reg2MaxOffset.getVal().find(A.Reg);
               I != Cur.Reg2MaxOffset.getVal().end())
             if (Next.SpilledSPMaxOffsetRegs.hasVal()) {
+              A.Reg = BC.MIB->getNoRegister();
               Next.SpilledSPMaxOffsetRegs.getVal()[A] = I->second;
               LLVM_DEBUG({
                 dbgs() << "  Recognized MaxOffsetFromSP register spilled at: ";
@@ -691,9 +694,9 @@ protected:
     bool IsNonConstantSPOffsetChange =
         checkNonConstSPOffsetChange(BC, BF, Point, Cur, &Next);
     if (IsNonConstantSPOffsetChange) {
-      // Do not set MaxOffsetSinceLastProbe to top, as extra information gathered later
-      // (when all maps are fully populated), could make this a constant SP offset change
-      // after all.
+      // Do not set MaxOffsetSinceLastProbe to top, as extra information
+      // gathered later (when all maps are fully populated), could make this a
+      // constant SP offset change after all.
 #if 0
       Next.MaxOffsetSinceLastProbe.reset();
 #endif

@@ -140,8 +140,8 @@ f_spoffset_spilled:
         mov     x0, sp
         str     x0, [x29, #8]
         prfm    pstl1keep, [x29, #0x0]
-        ldr     x0, [x29, #8]
-        mov     sp, x0
+        ldr     x1, [x29, #8]
+        mov     sp, x1
         mov     sp, x29
         ldp     x29, x30, [sp], #16
         ret
