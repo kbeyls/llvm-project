@@ -58,10 +58,15 @@ for the security properties that each implemented mitigation should provide.
       ../llvm-bolt-gadget-scanner/llvm
    ```
 4. Now run ninja in the build directory as follows to build the
-   `llvm-bolt-gadget-scanner` binary and run the associated regression tests on
-   it:
+   `llvm-bolt-gadget-scanner` binary:
    ```
-   $ ninja llvm-bolt-gadget-scanner &&  ./bin/llvm-lit -v ../llvm-bolt-gadget-scanner/bolt/test/gadget-scanner/
+   $ ninja llvm-bolt-gadget-scanner
+   ```
+5. To run regression tests, you can use `llvm-lit`, but you'll need to build it
+   (and several dependencies) first:
+   ```
+   $ ninja llvm-test-depends clang lld llvm-bolt-heatmap llvm-bat-dump merge-fdata
+   $ ./bin/llvm-lit -v ../llvm-bolt-gadget-scanner/bolt/test/gadget-scanner/
    ```
 
 ## Security properties for specific mitigations
