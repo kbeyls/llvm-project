@@ -789,6 +789,7 @@ void StackClashAnalysis::runOnFunction(
         BC.MIB->addAnnotation(Inst, gadgetAnnotationIndex, MergedSCI);
       }
     }
+    BC.MIB->freeValuesAllocator(AllocatorId);
   }
 }
 
