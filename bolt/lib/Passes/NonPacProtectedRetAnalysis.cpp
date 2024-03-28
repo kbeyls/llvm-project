@@ -719,24 +719,39 @@ void NonPacProtectedRetAnalysis::runOnFunctions(BinaryContext &BC) {
       BC, ParallelUtilities::SchedulingPolicy::SP_INST_LINEAR, WorkFun,
       SkipFunc, "NonPacProtectedRetAnalysis");
 
+  u_int64_t NrCFGFunctions = 0, NrNonCFGFunctions = 0, NrRets = 0,
+            NrInstructions = 0;
   for (BinaryFunction *BF : BC.getAllBinaryFunctions())
     if (BF->hasCFG()) {
+      NrCFGFunctions++;
       for (BinaryBasicBlock &BB : *BF) {
         for (int64_t I = BB.size() - 1; I >= 0; --I) {
           MCInst &Inst = BB.getInstructionAtIndex(I);
+          NrInstructions++;
+          if (BC.MIB->isReturn(Inst))
+            NrRets++;
           if (BC.MIB->hasAnnotation(Inst, gadgetAnnotationIndex)) {
             reportFoundGadget(BC, Inst, gadgetAnnotationIndex);
           }
         }
       }
     } else {
+      NrNonCFGFunctions++;
       for (auto I = BF->inst_begin(), E = BF->inst_end(); I != E; ++I) {
         const MCInst &Inst = (*I).second;
+        NrInstructions++;
+        if (BC.MIB->isReturn(Inst))
+          NrRets++;
         if (BC.MIB->hasAnnotation(Inst, gadgetAnnotationIndex)) {
           reportFoundGadget(BC, Inst, gadgetAnnotationIndex);
         }
       }
     }
+  outs() << "GS-PACRET-STATS: "
+         << "NrCFGFunctions=" << NrCFGFunctions << " "
+         << "NrNonCFGFunctions=" << NrNonCFGFunctions << " "
+         << "NrRets=" << NrRets << " "
+         << "NrInstructions=" << NrInstructions << "\n";
 }
 
 } // namespace bolt
