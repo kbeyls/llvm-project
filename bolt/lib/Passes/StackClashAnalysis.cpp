@@ -857,17 +857,27 @@ void StackClashAnalysis::runOnFunctions(BinaryContext &BC) {
       BC, ParallelUtilities::SchedulingPolicy::SP_INST_LINEAR, WorkFun,
       SkipFunc, "StackClashAnalysis");
 
+  u_int64_t NrCFGFunctions = 0, NrNonCFGFunctions = 0, NrInstructions = 0;
   for (BinaryFunction *BF : BC.getAllBinaryFunctions())
     if (BF->hasCFG()) {
+      NrCFGFunctions++;
       for (BinaryBasicBlock &BB : *BF) {
         for (size_t I = 0; I < BB.size(); ++I) {
+          NrInstructions++;
           MCInst &Inst = BB.getInstructionAtIndex(I);
           if (BC.MIB->hasAnnotation(Inst, gadgetAnnotationIndex)) {
             reportFoundGadget(BC, BB, Inst, gadgetAnnotationIndex);
           }
         }
       }
+    } else {
+      NrNonCFGFunctions++;
     }
+
+  outs() << "GS-STACKCLASH-STATS: "
+         << "NrCFGFunctions=" << NrCFGFunctions << " "
+         << "NrNonCFGFunctions=" << NrNonCFGFunctions << " "
+         << "NrInstructions=" << NrInstructions << "\n";
 }
 
 } // namespace bolt
