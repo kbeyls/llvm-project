@@ -736,6 +736,7 @@ void StackClashAnalysis::runOnFunction(
 
     // Now iterate over the basic blocks to indicate where something needs
     // to be reported.
+    // bool FoundGadget = false;
     for (BinaryBasicBlock &BB : BF) {
       bool TooLargeOffsetAlreadyReported = false;
       for (size_t I = 0; I < BB.size(); ++I) {
@@ -783,13 +784,16 @@ void StackClashAnalysis::runOnFunction(
         // merge and add annotations
         if (SCIAnnotations.size() == 0)
           continue;
+        // FoundGadget = true;
         StackClashIssue MergedSCI = StackClashIssue::createEmpty();
         for (StackClashIssue &SCI : SCIAnnotations)
           MergedSCI |= SCI;
         BC.MIB->addAnnotation(Inst, gadgetAnnotationIndex, MergedSCI);
       }
     }
-    BC.MIB->freeValuesAllocator(AllocatorId);
+    // FIXME: We need 2 allocatorIDs: 1 for the DFstate which we want to clear here.
+    // Another for gadgetAnnotations which we must not free here.
+    // BC.MIB->freeValuesAllocator(AllocatorId);
   }
 }
 
