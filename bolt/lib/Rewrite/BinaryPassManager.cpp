@@ -296,6 +296,10 @@ void BinaryFunctionPassManager::runPasses() {
       exit(1);
     }
 
+    // FIXME: add this under a command line option?
+    if (opts::Verbosity > 0)
+      BC.MIB->PrintAnnotationAllocStats();
+
     if (opts::Verbosity > 0)
       outs() << "BOLT-INFO: Finished pass: " << Pass->getName() << "\n";
 

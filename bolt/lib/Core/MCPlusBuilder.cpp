@@ -43,6 +43,21 @@ bool MCPlusBuilder::equals(const MCInst &A, const MCInst &B,
   return true;
 }
 
+void MCPlusBuilder::PrintAnnotationAllocStats() const {
+  static llvm::sys::RWMutex PrintAnnAllocMutex;
+  std::unique_lock<llvm::sys::RWMutex> Lock(PrintAnnAllocMutex);
+
+  size_t TotalBytesAllocated = 0;
+  for (auto const &I : AnnotationAllocators) {
+    const AllocatorIdTy AllocId = I.first;
+    const size_t BytesAllocatedByAllocator =
+        I.second.ValueAllocator.getBytesAllocated();
+    TotalBytesAllocated += BytesAllocatedByAllocator;
+  }
+  outs() << "BOLT-INFO: Total of " << TotalBytesAllocated
+         << " allocated by annotations.\n";
+}
+
 bool MCPlusBuilder::equals(const MCOperand &A, const MCOperand &B,
                            CompFuncTy Comp) const {
   if (A.isReg()) {

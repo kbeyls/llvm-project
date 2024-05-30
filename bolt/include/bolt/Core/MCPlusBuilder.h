@@ -393,6 +393,8 @@ public:
     }
   }
 
+  void PrintAnnotationAllocStats() const;
+
   using CompFuncTy = std::function<bool(const MCSymbol *, const MCSymbol *)>;
 
   bool equals(const MCInst &A, const MCInst &B, CompFuncTy Comp) const;
