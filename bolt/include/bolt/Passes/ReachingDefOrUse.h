@@ -34,9 +34,10 @@ class ReachingDefOrUse
 
 public:
   ReachingDefOrUse(const RegAnalysis &RA, BinaryFunction &BF,
-                   std::optional<MCPhysReg> TrackingReg = std::nullopt,
-                   MCPlusBuilder::AllocatorIdTy AllocId = 0)
-      : InstrsDataflowAnalysis<ReachingDefOrUse<Def>, !Def>(BF, AllocId),
+                   const bool UsePrivateAllocators,
+                   std::optional<MCPhysReg> TrackingReg = std::nullopt)
+      : InstrsDataflowAnalysis<ReachingDefOrUse<Def>, !Def>(
+            BF, UsePrivateAllocators),
         RA(RA), TrackingReg(TrackingReg) {}
   virtual ~ReachingDefOrUse() {}
 

@@ -1511,9 +1511,9 @@ public:
   PredictiveStackPointerTracking(BinaryFunction &BF,
                                  decltype(ShrinkWrapping::Todo) &TodoMap,
                                  DataflowInfoManager &Info,
-                                 MCPlusBuilder::AllocatorIdTy AllocatorId = 0)
-      : StackPointerTrackingBase<PredictiveStackPointerTracking>(BF,
-                                                                 AllocatorId),
+                                 const bool UsePrivateAllocators)
+      : StackPointerTrackingBase<PredictiveStackPointerTracking>(
+            BF, UsePrivateAllocators),
         TodoMap(TodoMap), Info(Info) {}
 
   void run() {
@@ -1853,7 +1853,7 @@ BBIterTy ShrinkWrapping::processInsertionsList(
 }
 
 bool ShrinkWrapping::processInsertions() {
-  PredictiveStackPointerTracking PSPT(BF, Todo, Info, AllocatorId);
+  PredictiveStackPointerTracking PSPT(BF, Todo, Info, true);
   PSPT.run();
 
   bool Changes = false;

@@ -85,7 +85,7 @@ protected:
 
 public:
   StackPointerTrackingForInternalCalls(BinaryFunction &BF)
-      : StackPointerTrackingBase<StackPointerTrackingForInternalCalls>(BF) {}
+      : StackPointerTrackingBase<StackPointerTrackingForInternalCalls>(BF, true) {}
 
   void run() {
     StackPointerTrackingBase<StackPointerTrackingForInternalCalls>::run();
@@ -140,7 +140,7 @@ bool ValidateInternalCalls::fixCFGForIC(BinaryFunction &Function) const {
 
   // Track instructions reaching a given point of the CFG to answer
   // "There is a path from entry to point A that contains instruction B"
-  ReachingInsns<false> RI(Function);
+  ReachingInsns<false> RI(Function, true);
   RI.run();
 
   // We use the InsnToBB map that DataflowInfoManager provides us

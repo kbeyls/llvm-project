@@ -31,8 +31,9 @@ class StackAllocationAnalysis
 
 public:
   StackAllocationAnalysis(BinaryFunction &BF, StackPointerTracking &SPT,
-                          MCPlusBuilder::AllocatorIdTy AllocId)
-      : InstrsDataflowAnalysis<StackAllocationAnalysis, false>(BF, AllocId),
+                          const bool UsePrivateAllocators)
+      : InstrsDataflowAnalysis<StackAllocationAnalysis, false>(
+            BF, UsePrivateAllocators),
         SPT(SPT) {}
   virtual ~StackAllocationAnalysis() {}
 

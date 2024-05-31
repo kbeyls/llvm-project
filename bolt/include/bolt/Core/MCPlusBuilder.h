@@ -351,14 +351,60 @@ public:
     return nullptr;
   }
 
-  /// Initialize a new annotation allocator and return its id
-  AllocatorIdTy initializeNewAnnotationAllocator() {
+private:
+  std::vector<AllocatorIdTy> AvailablePrivateAllocIds;
+  std::vector<AllocatorIdTy> AvailableSharedAllocIds;
+  llvm::sys::RWMutex AllocIdMgmtMutex;
+
+  AllocatorIdTy _initializeNewAnnotationAllocator() {
     AnnotationAllocators.emplace(MaxAllocatorId, AnnotationAllocator());
+    assert(MaxAllocatorId < std::numeric_limits<AllocatorIdTy>::max());
     return MaxAllocatorId++;
+  }
+
+public:
+  AllocatorIdTy getPrivateAllocatorId() {
+    std::unique_lock<llvm::sys::RWMutex> Lock(AllocIdMgmtMutex);
+    if (AvailablePrivateAllocIds.size() > 0) {
+      AllocatorIdTy AllocId = AvailablePrivateAllocIds.back();
+      AvailablePrivateAllocIds.pop_back();
+      AnnotationAllocators.emplace(AllocId, AnnotationAllocator());
+      return AllocId;
+    }
+    AllocatorIdTy AllocId = _initializeNewAnnotationAllocator();
+    return AllocId;
+  }
+
+  std::vector<AllocatorIdTy> getSharedAllocIds(unsigned nrAllocs) {
+    std::unique_lock<llvm::sys::RWMutex> Lock(AllocIdMgmtMutex);
+    for (unsigned I = AvailableSharedAllocIds.size(); I <= nrAllocs; ++I) {
+      // allocate new shared alloc Ids
+      AllocatorIdTy AllocId = _initializeNewAnnotationAllocator();
+      AvailableSharedAllocIds.push_back(AllocId);
+    }
+    std::vector<AllocatorIdTy> Result;
+    for (unsigned I = 0; I < nrAllocs; ++I)
+      Result.push_back(AvailableSharedAllocIds[I]);
+    return Result;
+  }
+
+  void freePrivateAllocatorId(AllocatorIdTy AllocId) {
+    std::unique_lock<llvm::sys::RWMutex> Lock(AllocIdMgmtMutex);
+    assert(AnnotationAllocators.count(AllocId) != 0);
+    AnnotationAllocator &Allocator = AnnotationAllocators.find(AllocId)->second;
+    for (MCPlus::MCAnnotation *Annotation : Allocator.AnnotationPool)
+      Annotation->~MCAnnotation();
+
+    Allocator.AnnotationPool
+        .clear(); // FIXME: wouldn't this call the destructor anyway?
+    Allocator.ValueAllocator.Reset();
+    AnnotationAllocators.erase(AllocId);
+    AvailablePrivateAllocIds.push_back(AllocId);
   }
 
   /// Return the annotation allocator of a given id
   AnnotationAllocator &getAnnotationAllocator(AllocatorIdTy AllocatorId) {
+    std::shared_lock<llvm::sys::RWMutex> Lock(AllocIdMgmtMutex);
     assert(AnnotationAllocators.count(AllocatorId) &&
            "allocator not initialized");
     return AnnotationAllocators.find(AllocatorId)->second;
@@ -366,17 +412,8 @@ public:
 
   // Check if an annotation allocator with the given id exists
   bool checkAllocatorExists(AllocatorIdTy AllocatorId) {
+    std::shared_lock<llvm::sys::RWMutex> Lock(AllocIdMgmtMutex);
     return AnnotationAllocators.count(AllocatorId);
-  }
-
-  /// Free the values allocator within the annotation allocator
-  void freeValuesAllocator(AllocatorIdTy AllocatorId) {
-    AnnotationAllocator &Allocator = getAnnotationAllocator(AllocatorId);
-    for (MCPlus::MCAnnotation *Annotation : Allocator.AnnotationPool)
-      Annotation->~MCAnnotation();
-
-    Allocator.AnnotationPool.clear();
-    Allocator.ValueAllocator.Reset();
   }
 
   virtual ~MCPlusBuilder() { freeAnnotations(); }

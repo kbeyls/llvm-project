@@ -175,9 +175,12 @@ protected:
   }
 
 public:
+  StackPointerTrackingBase(BinaryFunction &BF, const bool UsePrivateAllocators)
+      : DataflowAnalysis<Derived, std::pair<int, int>>(BF,
+                                                       UsePrivateAllocators) {}
   StackPointerTrackingBase(BinaryFunction &BF,
-                           MCPlusBuilder::AllocatorIdTy AllocatorId = 0)
-      : DataflowAnalysis<Derived, std::pair<int, int>>(BF, AllocatorId) {}
+                           MCPlusBuilder::AllocatorIdTy AllocId)
+      : DataflowAnalysis<Derived, std::pair<int, int>>(BF, AllocId) {}
 
   virtual ~StackPointerTrackingBase() {}
 
@@ -192,8 +195,9 @@ class StackPointerTracking
   friend class DataflowAnalysis<StackPointerTracking, std::pair<int, int>>;
 
 public:
+  StackPointerTracking(BinaryFunction &BF, const bool UsePrivateAllocators);
   StackPointerTracking(BinaryFunction &BF,
-                       MCPlusBuilder::AllocatorIdTy AllocatorId = 0);
+                       MCPlusBuilder::AllocatorIdTy AllocId);
   virtual ~StackPointerTracking() {}
 
   void run() { StackPointerTrackingBase<StackPointerTracking>::run(); }

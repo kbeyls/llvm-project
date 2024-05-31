@@ -28,8 +28,8 @@ class StackReachingUses
 
 public:
   StackReachingUses(const FrameAnalysis &FA, BinaryFunction &BF,
-                    MCPlusBuilder::AllocatorIdTy AllocId = 0)
-      : InstrsDataflowAnalysis(BF, AllocId), FA(FA) {}
+                    const bool UsePrivateAllocators)
+      : InstrsDataflowAnalysis(BF, UsePrivateAllocators), FA(FA) {}
   virtual ~StackReachingUses() {}
 
   /// Return true if the stack position written by the store in \p StoreFIE was

@@ -163,6 +163,8 @@ protected:
   /// The id of the annotation allocator to be used
   MCPlusBuilder::AllocatorIdTy AllocatorId = 0;
 
+  bool IsPrivateAllocatorId;
+
   /// Tracks the state at basic block start (end) if direction of the dataflow
   /// is forward (backward).
   std::unordered_map<const BinaryBasicBlock *, StateTy> StateAtBBEntry;
@@ -243,9 +245,6 @@ protected:
   }
 
 public:
-  /// Return the allocator id
-  unsigned getAllocatorId() { return AllocatorId; }
-
   /// If the direction of the dataflow is forward, operates on the last
   /// instruction of all predecessors when performing an iteration of the
   /// dataflow equation for the start of this BB.  If backwards, operates on
@@ -259,11 +258,40 @@ public:
 
   /// We need the current binary context and the function that will be processed
   /// in this dataflow analysis.
-  DataflowAnalysis(BinaryFunction &BF,
-                   MCPlusBuilder::AllocatorIdTy AllocatorId = 0)
-      : BC(BF.getBinaryContext()), Func(BF), AllocatorId(AllocatorId) {}
+  ///
+  /// There are 2 constructors:
+  /// * One version takes an AllocId, where it is assumed that:
+  ///   * If multiple threads are used, each different thread will get a different
+  ///     AllocId.
+  ///   * AllocIds may be reused by other functions/objects/DataflowAnalyses that
+  ///     take an AllocId of where to allocate MCAnnotations.
+  ///     As a result, the MCAnnotations this dataflow analysis allocates will
+  ///     not get freed before the end of the program run.
+  /// * The second version takes a bool argument UsePrivateAllocators, which
+  ///   must be set to true.
+  ///   * When constructed this way, the dataflowanalysis will construct its own
+  ///     allocator, only used for MCAnnotations allocated by this DataFlowAnalysis.
+  ///   * When the DataflowAnalysis is destructed, that allocator gets freed,
+  ///     so that the memory used by this DataflowAnalysis gets completely freed.
+  ///   * Note however, that there cannot be a huge number of allocators all live
+  ///     at the same time. Therefore, only use this function when you're going
+  ///     to destruct this DataFlowAnalysis after analyzing one BinaryFunction,
+  ///     before creating a new DataFlowAnalysis to analyze another BinaryFunction.
+  DataflowAnalysis(BinaryFunction &BF, const bool UsePrivateAllocators)
+      : BC(BF.getBinaryContext()), Func(BF),
+        AllocatorId(BC.MIB->getPrivateAllocatorId()),
+        IsPrivateAllocatorId(true) {
+    assert(UsePrivateAllocators == true);
+  }
+  DataflowAnalysis(BinaryFunction &BF, MCPlusBuilder::AllocatorIdTy AllocId)
+      : BC(BF.getBinaryContext()), Func(BF), AllocatorId(AllocId),
+        IsPrivateAllocatorId(false) {}
 
-  virtual ~DataflowAnalysis() { cleanAnnotations(); }
+  virtual ~DataflowAnalysis() {
+    cleanAnnotations();
+    if (IsPrivateAllocatorId)
+      BC.MIB->freePrivateAllocatorId(AllocatorId);
+  }
 
   /// Track the state at basic block start (end) if direction of the dataflow
   /// is forward (backward).
@@ -529,8 +557,11 @@ public:
     return count(*Expressions[PointIdx], Expr);
   }
 
+  InstrsDataflowAnalysis(BinaryFunction &BF, const bool UsePrivateAllocators)
+      : DataflowAnalysis<Derived, BitVector, Backward, StatePrinterTy>(
+            BF, UsePrivateAllocators) {}
   InstrsDataflowAnalysis(BinaryFunction &BF,
-                         MCPlusBuilder::AllocatorIdTy AllocId = 0)
+                         MCPlusBuilder::AllocatorIdTy AllocId)
       : DataflowAnalysis<Derived, BitVector, Backward, StatePrinterTy>(
             BF, AllocId) {}
   virtual ~InstrsDataflowAnalysis() {}

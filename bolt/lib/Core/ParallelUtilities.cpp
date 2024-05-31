@@ -187,20 +187,11 @@ void runOnEachFunctionWithUniqueAllocId(
     LLVM_DEBUG(T.stopTimer());
   };
 
-  unsigned AllocId = 1;
-  auto EnsureAllocatorExists = [&BC](unsigned AllocId) {
-    if (!BC.MIB->checkAllocatorExists(AllocId)) {
-      MCPlusBuilder::AllocatorIdTy Id =
-          BC.MIB->initializeNewAnnotationAllocator();
-      (void)Id;
-      assert(AllocId == Id && "unexpected allocator id created");
-    }
-  };
-
   if (opts::NoThreads || ForceSequential) {
-    EnsureAllocatorExists(AllocId);
+    std::vector<MCPlusBuilder::AllocatorIdTy> AvailableSharedIds =
+      BC.MIB->getSharedAllocIds(1);
     runBlock(BC.getBinaryFunctions().begin(), BC.getBinaryFunctions().end(),
-             AllocId);
+             AvailableSharedIds[0]);
     return;
   }
   // This lock is used to postpone task execution
@@ -213,7 +204,8 @@ void runOnEachFunctionWithUniqueAllocId(
       TotalCost > BlocksCount ? TotalCost / BlocksCount : 1;
 
   // Divide work into blocks of equal cost
-  ThreadPool &Pool = getThreadPool();
+  std::vector<std::map<uint64_t, BinaryFunction>::iterator>
+      BinaryFunctionBlocks;
   auto BlockBegin = BC.getBinaryFunctions().begin();
   unsigned CurrentCost = 0;
   for (auto It = BC.getBinaryFunctions().begin();
@@ -222,17 +214,21 @@ void runOnEachFunctionWithUniqueAllocId(
     CurrentCost += computeCostFor(BF, SkipPredicate, SchedPolicy);
 
     if (CurrentCost >= BlockCost) {
-      EnsureAllocatorExists(AllocId);
-      Pool.async(runBlock, BlockBegin, std::next(It), AllocId);
-      AllocId++;
-      BlockBegin = std::next(It);
+      BinaryFunctionBlocks.push_back(BlockBegin);
       CurrentCost = 0;
     }
   }
+  BinaryFunctionBlocks.push_back(BlockBegin);
+  BinaryFunctionBlocks.push_back(BC.getBinaryFunctions().end());
 
-  EnsureAllocatorExists(AllocId);
+  std::vector<MCPlusBuilder::AllocatorIdTy> AvailableSharedIds =
+    BC.MIB->getSharedAllocIds(BinaryFunctionBlocks.size()-1);
 
-  Pool.async(runBlock, BlockBegin, BC.getBinaryFunctions().end(), AllocId);
+  ThreadPool &Pool = getThreadPool();
+  for (unsigned I = 0; I < BinaryFunctionBlocks.size() - 1; ++I)
+    Pool.async(runBlock, BinaryFunctionBlocks[I], BinaryFunctionBlocks[I + 1],
+               AvailableSharedIds[I]);
+
   Lock.unlock();
   Pool.wait();
 }

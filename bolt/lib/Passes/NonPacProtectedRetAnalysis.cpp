@@ -191,8 +191,9 @@ class PacRetDFAnalysis
   friend Parent;
 
 public:
-  PacRetDFAnalysis(BinaryFunction &BF, MCPlusBuilder::AllocatorIdTy AllocId)
-      : Parent(BF, AllocId), NumRegs(BF.getBinaryContext().MRI->getNumRegs()) {}
+  PacRetDFAnalysis(BinaryFunction &BF, const bool UsePrivateAllocators)
+      : Parent(BF, UsePrivateAllocators),
+        NumRegs(BF.getBinaryContext().MRI->getNumRegs()) {}
   virtual ~PacRetDFAnalysis() {}
 
   void run() { Parent::run(); }
@@ -271,9 +272,11 @@ class PacRetDFWIAnalysis
   friend Parent;
 
 public:
-  PacRetDFWIAnalysis(BinaryFunction &BF, MCPlusBuilder::AllocatorIdTy AllocId,
-                     const std::vector<MCPhysReg> &_RegsToTrackInstsFor)
-      : Parent(BF, AllocId), NumRegs(BF.getBinaryContext().MRI->getNumRegs()),
+  PacRetDFWIAnalysis(BinaryFunction &BF,
+                     const std::vector<MCPhysReg> &_RegsToTrackInstsFor,
+                     const bool UsePrivateAllocators)
+      : Parent(BF, UsePrivateAllocators),
+        NumRegs(BF.getBinaryContext().MRI->getNumRegs()),
         RegsToTrackInstsFor(_RegsToTrackInstsFor),
         _Reg2StateIdx(*std::max_element(RegsToTrackInstsFor.begin(),
                                         RegsToTrackInstsFor.end()) +
@@ -554,7 +557,7 @@ void NonPacProtectedRetAnalysis::runOnFunction(
   // unsigned NrInstrScanned = 0;
 
   if (BF.hasCFG()) {
-    PacRetDFAnalysis PRA(BF, AllocatorId);
+    PacRetDFAnalysis PRA(BF, true);
     SmallSet<MCPhysReg, 1> RetRegsWithGadgets =
         ComputeDFState(PRA, BF, AllocatorId);
     if (!RetRegsWithGadgets.empty()) {
@@ -564,7 +567,7 @@ void NonPacProtectedRetAnalysis::runOnFunction(
       std::vector<MCPhysReg> RegsToTrack;
       for (MCPhysReg R : RetRegsWithGadgets)
         RegsToTrack.push_back(R);
-      PacRetDFWIAnalysis PRWIA(BF, AllocatorId, RegsToTrack);
+      PacRetDFWIAnalysis PRWIA(BF, RegsToTrack, true);
       SmallSet<MCPhysReg, 1> RetRegsWithGadgets =
           ComputeDFState(PRWIA, BF, AllocatorId);
     }

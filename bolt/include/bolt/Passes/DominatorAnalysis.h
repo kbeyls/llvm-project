@@ -32,6 +32,9 @@ class DominatorAnalysis
                                 Backward>;
 
 public:
+  DominatorAnalysis(BinaryFunction &BF)
+      : InstrsDataflowAnalysis<DominatorAnalysis<Backward>, Backward>(BF) {
+  }
   DominatorAnalysis(BinaryFunction &BF, MCPlusBuilder::AllocatorIdTy AllocId)
       : InstrsDataflowAnalysis<DominatorAnalysis<Backward>, Backward>(BF,
                                                                       AllocId) {

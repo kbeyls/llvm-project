@@ -28,7 +28,8 @@ class StackAvailableExpressions
 
 public:
   StackAvailableExpressions(const RegAnalysis &RA, const FrameAnalysis &FA,
-                            BinaryFunction &BF);
+                            BinaryFunction &BF,
+                            const bool UsePrivateAllocators);
   virtual ~StackAvailableExpressions() {}
 
   void run() { InstrsDataflowAnalysis<StackAvailableExpressions>::run(); }

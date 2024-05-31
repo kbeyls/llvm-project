@@ -15,9 +15,13 @@
 namespace llvm {
 namespace bolt {
 
-StackPointerTracking::StackPointerTracking(
-    BinaryFunction &BF, MCPlusBuilder::AllocatorIdTy AllocatorId)
-    : StackPointerTrackingBase<StackPointerTracking>(BF, AllocatorId) {}
+StackPointerTracking::StackPointerTracking(BinaryFunction &BF,
+                                           const bool UsePrivateAllocators)
+    : StackPointerTrackingBase<StackPointerTracking>(BF, UsePrivateAllocators) {
+}
+StackPointerTracking::StackPointerTracking(BinaryFunction &BF,
+                                           MCPlusBuilder::AllocatorIdTy AllocId)
+    : StackPointerTrackingBase<StackPointerTracking>(BF, AllocId) {}
 
 } // end namespace bolt
 } // end namespace llvm

@@ -31,8 +31,8 @@ class LivenessAnalysis : public DataflowAnalysis<LivenessAnalysis, BitVector,
 
 public:
   LivenessAnalysis(const RegAnalysis &RA, BinaryFunction &BF,
-                   MCPlusBuilder::AllocatorIdTy AllocId)
-      : Parent(BF, AllocId), RA(RA),
+                   const bool UsePrivateAllocators)
+      : Parent(BF, UsePrivateAllocators), RA(RA),
         NumRegs(BF.getBinaryContext().MRI->getNumRegs()) {}
   virtual ~LivenessAnalysis();
 

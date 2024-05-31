@@ -20,10 +20,10 @@
 namespace llvm {
 namespace bolt {
 
-StackAvailableExpressions::StackAvailableExpressions(const RegAnalysis &RA,
-                                                     const FrameAnalysis &FA,
-                                                     BinaryFunction &BF)
-    : InstrsDataflowAnalysis(BF), RA(RA), FA(FA) {}
+StackAvailableExpressions::StackAvailableExpressions(
+    const RegAnalysis &RA, const FrameAnalysis &FA, BinaryFunction &BF,
+    const bool UsePrivateAllocators)
+    : InstrsDataflowAnalysis(BF, UsePrivateAllocators), RA(RA), FA(FA) {}
 
 void StackAvailableExpressions::preflight() {
   LLVM_DEBUG(dbgs() << "Starting StackAvailableExpressions on \""

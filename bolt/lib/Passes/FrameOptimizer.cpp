@@ -57,7 +57,7 @@ namespace bolt {
 void FrameOptimizerPass::removeUnnecessaryLoads(const RegAnalysis &RA,
                                                 const FrameAnalysis &FA,
                                                 BinaryFunction &BF) {
-  StackAvailableExpressions SAE(RA, FA, BF);
+  StackAvailableExpressions SAE(RA, FA, BF, true);
   SAE.run();
 
   LLVM_DEBUG(dbgs() << "Performing unnecessary loads removal\n");
@@ -162,7 +162,7 @@ void FrameOptimizerPass::removeUnnecessaryLoads(const RegAnalysis &RA,
 
 void FrameOptimizerPass::removeUnusedStores(const FrameAnalysis &FA,
                                             BinaryFunction &BF) {
-  StackReachingUses SRU(FA, BF);
+  StackReachingUses SRU(FA, BF, true);
   SRU.run();
 
   LLVM_DEBUG(dbgs() << "Performing unused stores removal\n");
@@ -359,7 +359,7 @@ void FrameOptimizerPass::performShrinkWrapping(const RegAnalysis &RA,
 
   ParallelUtilities::WorkFuncWithAllocTy WorkFunction =
       [&](BinaryFunction &BF, MCPlusBuilder::AllocatorIdTy AllocatorId) {
-        DataflowInfoManager Info(BF, &RA, &FA, AllocatorId);
+        DataflowInfoManager Info(BF, &RA, &FA);
         ShrinkWrapping SW(FA, BF, Info, AllocatorId);
 
         if (SW.perform(HotOnly)) {
