@@ -489,8 +489,8 @@ class StackClashDFAnalysis
   friend Parent;
 
 public:
-  StackClashDFAnalysis(BinaryFunction &BF, MCPlusBuilder::AllocatorIdTy AllocId)
-      : Parent(BF, AllocId), NumRegs(BF.getBinaryContext().MRI->getNumRegs()),
+  StackClashDFAnalysis(BinaryFunction &BF)
+      : Parent(BF, true), NumRegs(BF.getBinaryContext().MRI->getNumRegs()),
         BF(BF) {}
   virtual ~StackClashDFAnalysis() {}
 
@@ -730,7 +730,7 @@ void StackClashAnalysis::runOnFunction(
   LLVM_DEBUG({ BF.dump(); });
 
   if (BF.hasCFG()) {
-    StackClashDFAnalysis SCDFA(BF, AllocatorId);
+    StackClashDFAnalysis SCDFA(BF);
     SCDFA.run();
     BinaryContext &BC = BF.getBinaryContext();
 
@@ -791,9 +791,6 @@ void StackClashAnalysis::runOnFunction(
         BC.MIB->addAnnotation(Inst, gadgetAnnotationIndex, MergedSCI);
       }
     }
-    // FIXME: We need 2 allocatorIDs: 1 for the DFstate which we want to clear here.
-    // Another for gadgetAnnotations which we must not free here.
-    // BC.MIB->freeValuesAllocator(AllocatorId);
   }
 }
 
