@@ -219,6 +219,11 @@ public:
     return true;
   }
 
+  bool isTrap(const MCInst &Inst) const override {
+    return false;
+  }
+
+
   bool createReturn(MCInst &Inst) const override {
     // TODO "c.jr ra" when RVC is enabled
     Inst.setOpcode(RISCV::JALR);

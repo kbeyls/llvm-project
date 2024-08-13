@@ -1449,6 +1449,10 @@ public:
     return true;
   }
 
+  bool isTrap(const MCInst &Inst) const override {
+    return Inst.getOpcode() == AArch64::BRK;
+  }
+
   bool convertJmpToTailCall(MCInst &Inst) override {
     setTailCall(Inst);
     return true;

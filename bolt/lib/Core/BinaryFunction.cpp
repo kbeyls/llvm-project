@@ -2059,7 +2059,8 @@ bool BinaryFunction::buildCFG(MCPlusBuilder::AllocatorIdTy AllocatorId) {
       addCFIPlaceholders(Offset, InsertBB);
     }
 
-    const bool IsBlockEnd = MIB->isTerminator(Instr) || MIB->isNoReturnCall(Instr);
+    const bool IsBlockEnd = MIB->isTerminator(Instr) ||
+                            MIB->isNoReturnCall(Instr) || MIB->isTrap(Instr);
     IsLastInstrNop = MIB->isNoop(Instr);
     if (!IsLastInstrNop)
       LastInstrOffset = Offset;
@@ -2138,7 +2139,7 @@ bool BinaryFunction::buildCFG(MCPlusBuilder::AllocatorIdTy AllocatorId) {
       //
       // Conditional tail call is a special case since we don't add a taken
       // branch successor for it.
-      if (MIB->isNoReturnCall(*LastInstr))
+      if (MIB->isNoReturnCall(*LastInstr) || MIB->isTrap(*LastInstr))
         IsPrevFT = false;
       else
         IsPrevFT = !MIB->isTerminator(*LastInstr) ||
@@ -3408,7 +3409,7 @@ void BinaryFunction::postProcessBranches() {
         continue;
 
       // If it's the basic block that does not end up with a terminator - we
-      // insert a return instruction unless it's a call instruction.
+      // insert a return instruction unless it's a call instruction or a trap.
       if (LastInstrRI == BB.rend()) {
         LLVM_DEBUG(
             dbgs() << "BOLT-DEBUG: at least one instruction expected in BB "
@@ -3416,7 +3417,8 @@ void BinaryFunction::postProcessBranches() {
         continue;
       }
       if (!BC.MIB->isTerminator(*LastInstrRI) &&
-          !BC.MIB->isCall(*LastInstrRI)) {
+          !BC.MIB->isCall(*LastInstrRI) &&
+          !BC.MIB->isTrap(*LastInstrRI)) {
         LLVM_DEBUG(dbgs() << "BOLT-DEBUG: adding return to basic block "
                           << BB.getName() << " in function " << *this << '\n');
         MCInst ReturnInstr;

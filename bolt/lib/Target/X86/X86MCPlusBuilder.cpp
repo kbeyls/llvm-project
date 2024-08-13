@@ -2763,6 +2763,10 @@ public:
     return true;
   }
 
+  bool isTrap(const MCInst &Inst) const override {
+    return Inst.getOpcode() == X86::TRAP;
+  }
+
   bool reverseBranchCondition(MCInst &Inst, const MCSymbol *TBB,
                               MCContext *Ctx) const override {
     unsigned InvCC = getInvertedCondCode(getCondCode(Inst));

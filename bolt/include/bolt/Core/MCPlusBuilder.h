@@ -1733,6 +1733,12 @@ evaluateStackOffsetExpr(const MCInst &Inst, int64_t &Output,
     return false;
   }
 
+  /// Returns true if Inst is a trap instruction.
+  virtual bool isTrap(const MCInst &Inst) const {
+    llvm_unreachable("not implemented");
+    return false;
+  }
+
   /// Creates an instruction to bump the stack pointer just like a call.
   virtual bool createStackPointerIncrement(MCInst &Inst, int Size = 8,
                                            bool NoFlagsClobber = false) const {
