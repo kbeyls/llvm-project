@@ -129,7 +129,7 @@ raw_ostream &operator<<(raw_ostream &OS, const State &S) {
 raw_ostream &operator<<(raw_ostream &OS, const StateWithInsts &S) {
   OS << "pacret-stateWI<";
   OS << "NonAutClobRegs: " << S.NonAutClobRegs;
-  OS << "Insts: ";
+  OS << ", Insts: ";
   for (unsigned I = 0; I < S.LastInstWritingReg.size(); ++I) {
     auto Set = S.LastInstWritingReg[I];
     OS << "[" << I << "](";
@@ -172,7 +172,7 @@ void PacStateWIPrinter::print(raw_ostream &OS, const StateWithInsts &S) const {
   OS << "pacret-state<";
   OS << "NonAutClobRegs: ";
   RegStatePrinter.print(OS, S.NonAutClobRegs);
-  OS << "Insts: ";
+  OS << ", Insts: ";
   for (unsigned I = 0; I < S.LastInstWritingReg.size(); ++I) {
     auto Set = S.LastInstWritingReg[I];
     OS << "[" << I << "](";
